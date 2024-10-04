@@ -6,5 +6,5 @@ Tensor doesn't have a LazyBuffer anymore, only an immutable UOp. Only CLANG back
 
 tensor.py and function.py stay as is mostly.
 
-No more lazy.py file
-
+- No more lazy.py file
+- Minimum Python version is 3.10
