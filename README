@@ -4,7 +4,9 @@ toonygrad will fix these issues. This is a similar project to teenygrad, but the
 
 Tensor doesn't have a LazyBuffer anymore, only an immutable UOp. Only CLANG backend. Everything in dirs.
 
-tensor.py and function.py stay as is mostly.
+dtypes.py and helpers.py don't import from tinygrad, they are fine
+
+tensor.py, function.py, dtypes.py, helpers.py stay as is mostly.
 
 - No more lazy.py file
 - Minimum Python version is 3.10
