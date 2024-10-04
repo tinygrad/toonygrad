@@ -8,11 +8,11 @@ from collections import defaultdict
 from toonygrad.dtype import DType, DTypeLike, dtypes, ImageDType, ConstType, least_upper_float, least_upper_dtype, sum_acc_dtype, to_dtype
 from toonygrad.helpers import argfix, make_pair, flatten, prod, all_int, round_up, merge_dicts, argsort, getenv, all_same, fully_flatten, dedup
 from toonygrad.helpers import IMAGE, DEBUG, WINO, _METADATA, Metadata, TRACEMETA
-from toonygrad.lazy import LazyBuffer
 from toonygrad.multi import MultiLazyBuffer
 from toonygrad.ops import MetaOps, truncate, smax, resolve, UOp, UOps, BinaryOps
 from toonygrad.device import Device, Buffer, BufferOptions
 from toonygrad.shape.symbolic import sint, Variable
+from toonygrad.engine.lazy import LazyBuffer
 from toonygrad.engine.realize import run_schedule, memory_planner
 from toonygrad.engine.schedule import ScheduleItem, create_schedule_with_vars
 
@@ -138,7 +138,7 @@ class Tensor:
     if isinstance(data, LazyBuffer): assert dtype is None or dtype == data.dtype, "dtype doesn't match, and casting isn't supported"
     elif isinstance(data, get_args(ConstType)): data = _metaop(MetaOps.CONST, tuple(), dtype or dtypes.from_py(data), device, data)
     elif isinstance(data, UOp):
-      assert data.op is UOps.ASSIGN and data.src[0].op is UOps.DEFINE_VAR and data.src[1].op is UOps.CONST, f"can't create tensor from UOp {data}"
+      assert data.op is UOps.BIND and data.src[0].op is UOps.DEFINE_VAR and data.src[1].op is UOps.CONST, f"can't create tensor from UOp {data}"
       data = _metaop(MetaOps.CONST, tuple(), dtype or data.dtype, device, data)
     elif isinstance(data, bytes): data = _frompy(data, dtypes.uint8 if dtype is None else dtype)
     elif isinstance(data, (list, tuple)):
@@ -378,12 +378,12 @@ class Tensor:
 
   @staticmethod
   def from_uop(y:UOp, **kwargs) -> Tensor:
-    if y.op is UOps.ASSIGN: return Tensor(y, **kwargs, requires_grad=False)   # this is the only UOp allowed in Tensor
+    if y.op is UOps.BIND: return Tensor(y, **kwargs, requires_grad=False)   # this is the only UOp allowed in Tensor
     if y.op is UOps.CONST: return Tensor(y.arg, **kwargs, requires_grad=False)
     if y.op is UOps.ALU:
       if y.arg is BinaryOps.MUL: return Tensor.from_uop(y.src[0]) * Tensor.from_uop(y.src[1])
       if y.arg is BinaryOps.ADD: return Tensor.from_uop(y.src[0]) + Tensor.from_uop(y.src[1])
-    raise RuntimeError(f"unhandled Node {y}")
+    raise RuntimeError(f"unhandled UOp {y}")
 
   # ***** creation entrypoint *****
 
@@ -3042,7 +3042,7 @@ class Tensor:
     """
     return functools.reduce(lambda x,f: f(x), ll, self)
 
-  def layernorm(self, axis=-1, eps:float=1e-5) -> Tensor:
+  def layernorm(self, axis:Union[int,Tuple[int,...]]=-1, eps:float=1e-5) -> Tensor:
     """
     Applies Layer Normalization over a mini-batch of inputs.
 

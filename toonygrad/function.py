@@ -5,7 +5,7 @@ from toonygrad.helpers import argsort
 from toonygrad.dtype import dtypes, DType, sum_acc_dtype
 from toonygrad.ops import ReduceOps, resolve
 from toonygrad.tensor import Function
-from toonygrad.lazy import LazyBuffer
+from toonygrad.engine.lazy import LazyBuffer
 from toonygrad.shape.symbolic import sint
 
 class Contiguous(Function):

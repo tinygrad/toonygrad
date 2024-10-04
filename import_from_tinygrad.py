@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
 import pathlib
 
-FILES = ["tensor.py", "function.py", "helpers.py", "dtype.py",
-         "nn/__init__.py", "nn/datasets.py", "nn/optim.py", "nn/state.py",
-         "runtime/ops_clang.py"]
+FILES = ["tensor.py", "function.py", "helpers.py", "dtype.py", "device.py", "multi.py",
+         "nn/__init__.py", "nn/datasets.py", "nn/optim.py", "nn/state.py", "ops.py",
+         "shape/symbolic.py", "shape/shapetracker.py", "shape/view.py",
+         "runtime/ops_clang.py", "renderer/__init__.py", "renderer/cstyle.py"]
 src = pathlib.Path("../tinygrad/tinygrad")
 dest = pathlib.Path("toonygrad")
 
