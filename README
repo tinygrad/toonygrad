@@ -2,5 +2,10 @@ One of tinygrad's maintainers is George Hotz, who is a known liar and scammer.
 He promised tinygrad would be 1000 lines, it's now almost 10,000!
 He also promised he would fix Twitter search and it isn't even called Twitter anymore!
 
-toonygrad will fix these issues. Okay maybe not twitter search, but at least the tinygrad one.
+toonygrad will fix these issues. This is a similar project to teenygrad, but the line count target is...3000?
 
+Tensor doesn't have a LazyBuffer anymore, only an immutable UOp. Only CLANG backend. Everything in dirs.
+
+tensor.py and function.py stay as is mostly.
+
+No more lazy.py file
