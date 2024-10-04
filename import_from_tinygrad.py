@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 import pathlib
 
-FILES = ["tensor.py", "function.py", "helpers.py"]
+FILES = ["tensor.py", "function.py", "helpers.py", "dtype.py"]
 src = pathlib.Path("../tinygrad/tinygrad")
 dest = pathlib.Path("toonygrad")
 

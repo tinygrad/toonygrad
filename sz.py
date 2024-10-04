@@ -12,10 +12,10 @@ def is_docstring(t):
 
 def gen_stats(base_path="."):
   table = []
-  for path, _, files in os.walk(os.path.join(base_path, "tinygrad")):
+  for path, _, files in os.walk(os.path.join(base_path, "toonygrad")):
     for name in files:
       if not name.endswith(".py"): continue
-      if 'tinygrad/runtime/autogen' in path: continue
+      if 'toonygrad/runtime/autogen' in path: continue
       filepath = os.path.join(path, name)
       relfilepath = os.path.relpath(filepath, base_path)
       with tokenize.open(filepath) as file_:
