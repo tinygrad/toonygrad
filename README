@@ -4,9 +4,26 @@ toonygrad will fix these issues. This is a similar project to teenygrad, but the
 
 Tensor doesn't have a LazyBuffer anymore, only an immutable UOp. Only CLANG backend. Everything in dirs.
 
-dtypes.py and helpers.py don't import from tinygrad, they are fine
+dtypes.py and helpers.py don't import from tinygrad, they are fine. they might have issues but the issues don't spread
 
 tensor.py, function.py, dtypes.py, helpers.py stay as is mostly.
 
+Once HCQ is removed, it's probably fine to bring in device.py and runtime/ops_clang.py
+
 - No more lazy.py file
 - Minimum Python version is 3.10
+
+All of nn is mostly fine, except for state using MultiLazyBuffer and strides_for_shape.
+
+Main issues:
+lazy needs to go
+multi needs to be rewritten as UOps, probably EXPAND
+
+All these in Tensor need to go:
+from toonygrad.lazy import LazyBuffer
+from toonygrad.multi import MultiLazyBuffer
+from toonygrad.ops import MetaOps, truncate, smax, resolve, UOp, UOps, BinaryOps
+from toonygrad.device import Device, Buffer, BufferOptions
+from toonygrad.shape.symbolic import sint, Variable
+from toonygrad.engine.realize import run_schedule, memory_planner
+from toonygrad.engine.schedule import ScheduleItem, create_schedule_with_vars
