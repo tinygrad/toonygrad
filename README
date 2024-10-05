@@ -27,3 +27,5 @@ from toonygrad.device import Device, Buffer, BufferOptions
 from toonygrad.shape.symbolic import sint, Variable
 from toonygrad.engine.realize import run_schedule, memory_planner
 from toonygrad.engine.schedule import ScheduleItem, create_schedule_with_vars
+
+toonygrad is pretty much just a replacement of engine and codegen
