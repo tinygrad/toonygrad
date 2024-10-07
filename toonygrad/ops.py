@@ -6,7 +6,7 @@ from enum import auto, IntEnum, Enum
 from dataclasses import dataclass, field
 from weakref import WeakValueDictionary
 from toonygrad.dtype import ConstType, ImageDType, PtrDType, dtypes, DType, truncate
-from toonygrad.helpers import ContextVar, prod, getenv, all_same
+from toonygrad.helpers import ContextVar, prod, getenv, all_same, unwrap
 if TYPE_CHECKING:
   from toonygrad.shape.symbolic import Variable, sint
   from toonygrad.shape.shapetracker import ShapeTracker
@@ -223,6 +223,7 @@ class UOp(MathTrait):
   # *** uop syntactic sugar
   @property
   def st_arg(self) -> ShapeTracker:
+    if self.op is UOps.SHAPETRACKER: return self.arg
     assert self.op in BUFFER_UOPS, f"st_arg called on {self.op}"
     ret = self.src[0 if self.op is UOps.VALID else 1]
     assert ret.op is UOps.SHAPETRACKER, f"st_arg trying to return {ret}"
@@ -293,6 +294,21 @@ class UOp(MathTrait):
   @functools.cached_property
   def full_shape(self) -> Tuple[sint, ...]:
     return self.arg.shape if self.op is UOps.SHAPETRACKER else tuple(smax(x) for x in zip(*[x.full_shape for x in self.src if x.has_st]))
+
+  # *** shape moved from LazyBuffer ***
+  @functools.cached_property
+  def get_shape(self):
+    if self.op is UOps.SHAPETRACKER: return self.st_arg.shape
+    shapes = [x.get_shape for x in self.src]
+    non_none_shapes = [x for x in shapes if x is not None]
+    assert len(non_none_shapes) > 0 and all_same(non_none_shapes)
+    # TODO: handle REDUCE_AXIS
+    return non_none_shapes[0]
+  @property
+  def shape(self) -> Tuple[sint, ...]: return unwrap(self.get_shape)
+  @property
+  def size(self) -> sint: return prod(self.shape)
+
   def vars(self) -> Set[UOp]:
     bound_vars = set([x for x in self.sparents if x.op is UOps.BIND and x.src[0].op is UOps.DEFINE_VAR])
     bound_var_base = set(x.src[0] for x in bound_vars)
