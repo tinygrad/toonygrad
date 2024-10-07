@@ -3,4 +3,3 @@ class ScheduleItem:
 
 def create_schedule_with_vars():
   pass
-
