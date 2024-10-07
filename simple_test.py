@@ -6,8 +6,8 @@ if __name__ == "__main__":
   from beautiful_mnist import Model
 
   model = Model()
-  for p in get_parameters(model): p.replace(Tensor.ones(p.shape))
-  model(Tensor.zeros(1, 1, 28, 28)).realize()
+  for p in get_parameters(model): p.replace(Tensor.empty(p.shape))
+  model(Tensor.empty(1, 1, 28, 28)).realize()
   exit(0)
 
   a = Tensor([2])

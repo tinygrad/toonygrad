@@ -10,6 +10,7 @@ from toonygrad.helpers import ContextVar, prod, getenv, all_same, unwrap
 if TYPE_CHECKING:
   from toonygrad.shape.symbolic import Variable, sint
   from toonygrad.shape.shapetracker import ShapeTracker
+  from toonygrad.device import Buffer
 
 # wrapper around IntEnum that preserves Enum.__str__ and makes auto() unique across all FastEnum subclasses
 class FastEnum(IntEnum):
@@ -175,6 +176,8 @@ def pretty_print(x:Any, rep:Callable, srcfn=lambda x: x.src, cache=None, d=0)->s
   cx[2], srcs = True, ('None' if srcfn(x) is None else ''.join(f'\n{pretty_print(s, rep, srcfn, cache, d+2)},' for s in srcfn(x)))
   return f"{' '*d}{f'x{cx[0]}:=' * (cx[1]>1)}{rep(x)}" % srcs
 
+buffers: Dict[UOp, Buffer] = {}
+
 ucache:WeakValueDictionary[Tuple, UOp] = WeakValueDictionary()
 class UOp(MathTrait):
   def __reduce__(self): return UOp, (self.op, self.dtype, self.src, self.arg)
@@ -299,6 +302,16 @@ class UOp(MathTrait):
   def full_shape(self) -> Tuple[sint, ...]:
     return self.arg.shape if self.op is UOps.SHAPETRACKER else tuple(smax(x) for x in zip(*[x.full_shape for x in self.src if x.has_st]))
 
+  # *** buffer moved from LazyBuffer ***
+  @property
+  def buffer(self) -> Buffer:
+    if self.op is UOps.SWIZZLE: return self.src[0].buffer  # wrong if non reshape
+    assert self.op == UOps.BUFFER
+    if (ret:=buffers.get(self, None)) is not None: return ret
+    from toonygrad.device import Buffer
+    ret = buffers[self] = Buffer(self.arg[0], self.arg[1], self.dtype)
+    return ret
+
   # *** device moved from LazyBuffer ***
   @functools.cached_property
   def get_device(self):
@@ -323,6 +336,7 @@ class UOp(MathTrait):
   @functools.cached_property
   def get_shape(self):
     if self.op in {UOps.SHAPETRACKER, UOps.SWIZZLE}: return unwrap(self.st).shape
+    if self.op is UOps.BUFFER: return (self.arg[1],)
     if self.op is UOps.CONST: return None
     shapes = [x.get_shape for x in self.src]
     non_none_shapes = [x for x in shapes if x is not None]
