@@ -3,7 +3,7 @@
 from typing import List, Callable
 from toonygrad import Tensor, nn
 from toonygrad.helpers import getenv, colored, trange
-from tinygrad.nn.datasets import mnist
+from toonygrad.nn.datasets import mnist
 
 class Model:
   def __init__(self):

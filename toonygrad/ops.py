@@ -100,7 +100,12 @@ def identity_element(op:BinaryOps, dt:DType): return dtypes.as_const({BinaryOps.
 class UOps(FastEnum):
   # uops that aren't rendered
   SINK = auto()
+
+  # MetaOps
   EXT = auto()
+  COPY = auto()
+  CONTIGUOUS = auto()
+
   EXPAND = auto()
   CONTRACT = auto()
   SHAPETRACKER = auto()
@@ -223,7 +228,6 @@ class UOp(MathTrait):
   # *** uop syntactic sugar
   @property
   def st_arg(self) -> ShapeTracker:
-    if self.op is UOps.SHAPETRACKER: return self.arg
     assert self.op in BUFFER_UOPS, f"st_arg called on {self.op}"
     ret = self.src[0 if self.op is UOps.VALID else 1]
     assert ret.op is UOps.SHAPETRACKER, f"st_arg trying to return {ret}"
@@ -295,19 +299,56 @@ class UOp(MathTrait):
   def full_shape(self) -> Tuple[sint, ...]:
     return self.arg.shape if self.op is UOps.SHAPETRACKER else tuple(smax(x) for x in zip(*[x.full_shape for x in self.src if x.has_st]))
 
+  # *** device moved from LazyBuffer ***
+  @functools.cached_property
+  def get_device(self):
+    if self.op is UOps.BUFFER: return self.arg[0]
+    devices = [x.get_device for x in self.src]
+    non_none_devices = [x for x in devices if x is not None]
+    if len(non_none_devices) == 0: return None
+    assert all_same(non_none_devices), f"device mismatch {non_none_devices}"
+    if self.op is UOps.COPY: return self.arg
+    return non_none_devices[0]
+  @property
+  def device(self) -> str: return unwrap(self.get_device)
+
   # *** shape moved from LazyBuffer ***
   @functools.cached_property
   def get_shape(self):
-    if self.op is UOps.SHAPETRACKER: return self.st_arg.shape
+    if self.op in {UOps.SHAPETRACKER, UOps.SWIZZLE}: return unwrap(self.st).shape
     shapes = [x.get_shape for x in self.src]
     non_none_shapes = [x for x in shapes if x is not None]
-    assert len(non_none_shapes) > 0 and all_same(non_none_shapes)
-    # TODO: handle REDUCE_AXIS
-    return non_none_shapes[0]
+    if len(non_none_shapes) == 0: return None
+    assert all_same(non_none_shapes)
+    ret = list(non_none_shapes[0])
+    if self.op is UOps.REDUCE_AXIS:
+      for axis in self.arg[1]: ret[axis] = 1
+    return tuple(ret)
   @property
   def shape(self) -> Tuple[sint, ...]: return unwrap(self.get_shape)
   @property
+  def st_shape(self) -> ShapeTracker:
+    from tinygrad.shape.shapetracker import ShapeTracker
+    return ShapeTracker.from_shape(self.shape)
+
+  @property
   def size(self) -> sint: return prod(self.shape)
+
+  def r(self, op, axis): return UOp(UOps.REDUCE_AXIS, self.dtype, (self,), (REDUCE_ALU[op], axis))
+
+  # this breaks the graph on kernel boundary
+  def contiguous(self): return UOp(UOps.CONTIGUOUS, self.dtype, (self,))
+
+  # TODO: this is broken
+  def is_realized(self): return False
+
+  # *** movement ops from LazyBuffer
+  def reshape(self, shape): return UOp(UOps.SWIZZLE, self.dtype, (self,), self.st_shape.reshape(shape))
+  def expand(self, shape): return UOp(UOps.SWIZZLE, self.dtype, (self,), self.st_shape.expand(shape))
+  def permute(self, arg): return UOp(UOps.SWIZZLE, self.dtype, (self,), self.st_shape.permute(arg))
+  def pad(self, arg): return UOp(UOps.SWIZZLE, self.dtype, (self,), self.st_shape.pad(arg))
+  def shrink(self, arg): return UOp(UOps.SWIZZLE, self.dtype, (self,), self.st_shape.shrink(arg))
+  def stride(self, arg): return UOp(UOps.SWIZZLE, self.dtype, (self,), self.st_shape.stride(arg))
 
   def vars(self) -> Set[UOp]:
     bound_vars = set([x for x in self.sparents if x.op is UOps.BIND and x.src[0].op is UOps.DEFINE_VAR])
