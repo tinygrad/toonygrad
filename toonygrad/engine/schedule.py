@@ -17,9 +17,19 @@ pm = symbolic+PatternMatcher([
     lambda s,c: c if all(x.mask is None for x in s.st.views) else None),
 ])
 
+def append_kernel(k:List[UOp], base:UOp, x:UOp):
+  k.append(x.sink())
+  return base.replace(src=())
+break_sched = PatternMatcher([
+  (UPat(UOps.SWIZZLE, src=(UPat.var('x'),), name="base"), append_kernel),
+])
+
 def create_schedule_with_vars(sched:List[UOp]):
   # TODO: should the input be a SINK?
   sink = UOp.sink(*sched)
   sink = graph_rewrite(sink, pm)
+  sched = []
+  sched.append(graph_rewrite(sink, break_sched, []))
+  print(len(sched))
   #print(sink)
-  return [], {}
+  return sched, {}

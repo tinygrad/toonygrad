@@ -348,12 +348,6 @@ class UOp(MathTrait):
     return tuple(ret)
   @property
   def shape(self) -> Tuple[sint, ...]: return unwrap(self.get_shape)
-  @property
-  def st_shape(self) -> ShapeTracker:
-    from toonygrad.shape.shapetracker import ShapeTracker
-    shape = self.get_shape
-    if shape is None: return ShapeTracker.from_shape(tuple())
-    return ShapeTracker.from_shape(shape)
 
   @property
   def size(self) -> sint: return prod(self.shape)
@@ -367,13 +361,14 @@ class UOp(MathTrait):
   def is_realized(self): return False
 
   # *** movement ops from LazyBuffer
+  @property
+  def st_shape(self) -> ShapeTracker:
+    from toonygrad.shape.shapetracker import ShapeTracker
+    shape = self.get_shape
+    if shape is None: return ShapeTracker.from_shape(tuple())
+    return ShapeTracker.from_shape(shape)
   def _swizzle(self, method, arg):
     return UOp(UOps.SWIZZLE, self.dtype, (self,), self.st_shape.__getattribute__(method)(arg))
-
-    # TODO: do we want this?
-    #base_st = self.st if self.op is UOps.SWIZZLE else self.st_shape
-    #base_src = self.src[0] if self.op is UOps.SWIZZLE else self
-    #return UOp(UOps.SWIZZLE, self.dtype, (base_src,), base_st.__getattribute__(method)(arg))
 
   def reshape(self, shape): return self._swizzle('reshape', shape)
   def expand(self, shape): return self._swizzle('expand', shape)
