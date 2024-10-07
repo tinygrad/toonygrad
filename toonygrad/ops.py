@@ -335,7 +335,7 @@ class UOp(MathTrait):
   def shape(self) -> Tuple[sint, ...]: return unwrap(self.get_shape)
   @property
   def st_shape(self) -> ShapeTracker:
-    from tinygrad.shape.shapetracker import ShapeTracker
+    from toonygrad.shape.shapetracker import ShapeTracker
     return ShapeTracker.from_shape(self.shape)
 
   @property
@@ -714,11 +714,12 @@ class RewriteContext:
 
 def graph_rewrite(sink:UOp, pm:PatternMatcher, ctx=None) -> UOp:
   if TRACK_MATCH_STATS >= 2:
-    from toonygrad.codegen.kernel import Kernel
-    frm = sys._getframe(1)
+    #from toonygrad.codegen.kernel import Kernel
+    #frm = sys._getframe(1)
     # get Kernel we are rewriting in the context of
-    frm_walk: Optional[FrameType] = frm
-    while frm_walk is not None and not isinstance(kernel:=frm_walk.f_locals.get("self", None), Kernel): kernel, frm_walk = None, frm_walk.f_back
+    #frm_walk: Optional[FrameType] = frm
+    #while frm_walk is not None and not isinstance(kernel:=frm_walk.f_locals.get("self", None), Kernel): kernel, frm_walk = None, frm_walk.f_back
+    kernel = "test"
     rewrite_stack.append((kernel, [TrackedRewriteContext(((frm:=sys._getframe(1)).f_code.co_filename, frm.f_lineno), sink)]))
   ret = RewriteContext(pm, ctx).rewrite(sink)
   if TRACK_MATCH_STATS >= 2: contexts.append(rewrite_stack.pop())
