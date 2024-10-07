@@ -135,11 +135,8 @@ class Tensor:
     self._ctx: Optional[Function] = None
 
     # create a LazyBuffer from the different types of inputs
-    if isinstance(data, LazyBuffer): assert dtype is None or dtype == data.dtype, "dtype doesn't match, and casting isn't supported"
+    if isinstance(data, UOp): assert dtype is None or dtype == data.dtype, "dtype doesn't match, and casting isn't supported"
     elif isinstance(data, get_args(ConstType)): data = _metaop(MetaOps.CONST, tuple(), dtype or dtypes.from_py(data), device, data)
-    elif isinstance(data, UOp):
-      assert data.op is UOps.BIND and data.src[0].op is UOps.DEFINE_VAR and data.src[1].op is UOps.CONST, f"can't create tensor from UOp {data}"
-      data = _metaop(MetaOps.CONST, tuple(), dtype or data.dtype, device, data)
     elif isinstance(data, bytes): data = _frompy(data, dtypes.uint8 if dtype is None else dtype)
     elif isinstance(data, (list, tuple)):
       if dtype is None:
@@ -158,7 +155,7 @@ class Tensor:
       data = _metaop(MetaOps.EMPTY, (data.stat().st_size // dtype.itemsize,), dtype, f"DISK:{data.resolve()}")
 
     # by this point, it has to be a LazyBuffer
-    if not isinstance(data, (LazyBuffer, MultiLazyBuffer)):
+    if not isinstance(data, (UOp, MultiLazyBuffer)):
       raise RuntimeError(f"can't create Tensor from {data!r} with type {type(data)}")
 
     # data is a LazyBuffer, but it might be on the wrong device
@@ -166,7 +163,7 @@ class Tensor:
       # if device is a tuple, we should have/construct a MultiLazyBuffer
       if isinstance(data, MultiLazyBuffer):
         assert data.device == device, f"MultiLazyBuffer device mismatch, {data.device} != {device}"
-        self.lazydata: Union[LazyBuffer, MultiLazyBuffer] = data
+        self.lazydata: Union[UOp, MultiLazyBuffer] = data
       else:
         self.lazydata = MultiLazyBuffer.from_sharded(data, device, None, None)
     else:
@@ -267,7 +264,9 @@ class Tensor:
     if 0 in self.shape: return memoryview(bytearray(0))
     # NOTE: this realizes on the object from as_buffer being a Python object
     cpu = self.cast(self.dtype.scalar()).contiguous().to("CLANG").realize()
-    buf = cast(Buffer, cast(LazyBuffer, cpu.lazydata).base.realized)
+    buf = LazyBuffer.get_buffer(cpu)
+
+    #buf = cast(Buffer, cast(LazyBuffer, cpu.lazydata).base.realized)
     if self.device != "CLANG": buf.options = BufferOptions(nolru=True)
     return buf.as_buffer(allow_zero_copy=True if self.device != "CLANG" else False)
 

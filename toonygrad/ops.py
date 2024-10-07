@@ -312,6 +312,13 @@ class UOp(MathTrait):
   @property
   def device(self) -> str: return unwrap(self.get_device)
 
+  def copy_to_device(self, device):
+    return UOp(UOps.COPY, self.dtype, (self,), device)
+
+  # TODO: this is stupid
+  @property
+  def lbs(self): return [self]
+
   # *** shape moved from LazyBuffer ***
   @functools.cached_property
   def get_shape(self):
