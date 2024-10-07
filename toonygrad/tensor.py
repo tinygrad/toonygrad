@@ -167,7 +167,7 @@ class Tensor:
       else:
         self.lazydata = MultiLazyBuffer.from_sharded(data, device, None, None)
     else:
-      self.lazydata = data if data.device == device else data.copy_to_device(device)
+      self.lazydata = data if data.get_device is None or data.device == device else data.copy_to_device(device)
 
   class train(ContextDecorator):
     def __init__(self, mode:bool = True): self.mode = mode

@@ -100,7 +100,7 @@ class Handler(BaseHTTPRequestHandler):
       ret = b""
     return self.wfile.write(ret)
 
-BROWSER = getenv("BROWSER", 1)
+BROWSER = getenv("BROWSER", 0)
 stop_reloader = threading.Event()
 def reloader():
   mtime = os.stat(__file__).st_mtime

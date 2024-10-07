@@ -1,6 +1,6 @@
 from __future__ import annotations
 from typing import cast, Tuple, Dict
-from toonygrad.ops import UOp, UOps
+from toonygrad.ops import UOp, UOps, MetaOps
 from toonygrad.shape.symbolic import sint
 from toonygrad.shape.shapetracker import ShapeTracker
 from toonygrad.device import Buffer
@@ -25,6 +25,9 @@ class LazyBuffer(UOp):
 
   @staticmethod
   def metaop(op, shape, dtype, device, arg=None, src=None):
-    #print(op, shape, dtype, device, arg, src)
-    LazyBuffer.buffer_num += 1
-    return LazyBuffer(UOps.BUFFER, dtype, (ShapeTracker.from_shape(shape).to_uop(),), (device, LazyBuffer.buffer_num))
+    if op is MetaOps.CONST:
+      return UOp.const(dtype, arg).reshape(shape)
+    if op is MetaOps.EMPTY:
+      LazyBuffer.buffer_num += 1
+      return LazyBuffer(UOps.BUFFER, dtype, (ShapeTracker.from_shape(shape).to_uop(),), (device, LazyBuffer.buffer_num))
+    raise Exception(f"unhandled MetaOp {op}")

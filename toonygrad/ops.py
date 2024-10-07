@@ -310,7 +310,7 @@ class UOp(MathTrait):
     if self.op is UOps.COPY: return self.arg
     return non_none_devices[0]
   @property
-  def device(self) -> str: return unwrap(self.get_device)
+  def device(self) -> str: return self.get_device
 
   def copy_to_device(self, device):
     return UOp(UOps.COPY, self.dtype, (self,), device)
@@ -323,10 +323,11 @@ class UOp(MathTrait):
   @functools.cached_property
   def get_shape(self):
     if self.op in {UOps.SHAPETRACKER, UOps.SWIZZLE}: return unwrap(self.st).shape
+    if self.op is UOps.CONST: return None
     shapes = [x.get_shape for x in self.src]
     non_none_shapes = [x for x in shapes if x is not None]
     if len(non_none_shapes) == 0: return None
-    assert all_same(non_none_shapes)
+    assert all_same(non_none_shapes), f"shape mismatch {non_none_shapes}, {self}"
     ret = list(non_none_shapes[0])
     if self.op is UOps.REDUCE_AXIS:
       for axis in self.arg[1]: ret[axis] = 1
@@ -336,7 +337,9 @@ class UOp(MathTrait):
   @property
   def st_shape(self) -> ShapeTracker:
     from toonygrad.shape.shapetracker import ShapeTracker
-    return ShapeTracker.from_shape(self.shape)
+    shape = self.get_shape
+    if shape is None: return ShapeTracker.from_shape(tuple())
+    return ShapeTracker.from_shape(shape)
 
   @property
   def size(self) -> sint: return prod(self.shape)
@@ -350,12 +353,20 @@ class UOp(MathTrait):
   def is_realized(self): return False
 
   # *** movement ops from LazyBuffer
-  def reshape(self, shape): return UOp(UOps.SWIZZLE, self.dtype, (self,), self.st_shape.reshape(shape))
-  def expand(self, shape): return UOp(UOps.SWIZZLE, self.dtype, (self,), self.st_shape.expand(shape))
-  def permute(self, arg): return UOp(UOps.SWIZZLE, self.dtype, (self,), self.st_shape.permute(arg))
-  def pad(self, arg): return UOp(UOps.SWIZZLE, self.dtype, (self,), self.st_shape.pad(arg))
-  def shrink(self, arg): return UOp(UOps.SWIZZLE, self.dtype, (self,), self.st_shape.shrink(arg))
-  def stride(self, arg): return UOp(UOps.SWIZZLE, self.dtype, (self,), self.st_shape.stride(arg))
+  def _swizzle(self, method, arg):
+    return UOp(UOps.SWIZZLE, self.dtype, (self,), self.st_shape.__getattribute__(method)(arg))
+
+    # TODO: do we want this?
+    #base_st = self.st if self.op is UOps.SWIZZLE else self.st_shape
+    #base_src = self.src[0] if self.op is UOps.SWIZZLE else self
+    #return UOp(UOps.SWIZZLE, self.dtype, (base_src,), base_st.__getattribute__(method)(arg))
+
+  def reshape(self, shape): return self._swizzle('reshape', shape)
+  def expand(self, shape): return self._swizzle('expand', shape)
+  def permute(self, arg): return self._swizzle('permute', arg)
+  def pad(self, arg): return self._swizzle('pad', arg)
+  def shrink(self, arg): return self._swizzle('shrink', arg)
+  def stride(self, arg): return self._swizzle('stride', arg)
 
   def vars(self) -> Set[UOp]:
     bound_vars = set([x for x in self.sparents if x.op is UOps.BIND and x.src[0].op is UOps.DEFINE_VAR])
