@@ -5,13 +5,10 @@ from enum import auto, IntEnum, Enum
 from dataclasses import dataclass, field
 from weakref import WeakValueDictionary
 from toonygrad.dtype import ConstType, ImageDType, PtrDType, dtypes, DType, truncate
-from toonygrad.helpers import ContextVar, prod, getenv, all_same, unwrap
+from toonygrad.helpers import ContextVar, prod, getenv, all_same
 if TYPE_CHECKING:
-  from toonygrad.device import Buffer
   from toonygrad.shape.symbolic import Variable, sint
   from toonygrad.shape.shapetracker import ShapeTracker
-
-buffers: Dict[UOp, Buffer] = {}
 
 # wrapper around IntEnum that preserves Enum.__str__ and makes auto() unique across all FastEnum subclasses
 class FastEnum(IntEnum):
@@ -102,7 +99,6 @@ def identity_element(op:BinaryOps, dt:DType): return dtypes.as_const({BinaryOps.
 class UOps(FastEnum):
   # uops that aren't rendered
   SINK = auto()
-  CONTIGUOUS = auto()
 
   # metaops
   CUSTOM = auto()
@@ -374,81 +370,6 @@ class UOp(MathTrait):
   def render(self, simplify=True) -> str:
     ret = graph_rewrite(self.simplify() if simplify else self, renderer)
     return ret.arg if ret.op is UOps.NOOP else str(ret)
-
-  # *** buffer moved from LazyBuffer ***
-  @property
-  def buffer(self) -> Buffer:
-    if self.op is UOps.SWIZZLE: return self.src[0].buffer  # wrong if non reshape
-    assert self.op == UOps.BUFFER
-    if (ret:=buffers.get(self, None)) is not None: return ret
-    from toonygrad.device import Buffer
-    ret = buffers[self] = Buffer(self.arg[0], self.arg[1], self.dtype)
-    return ret
-
-  # *** device moved from LazyBuffer ***
-  @functools.cached_property
-  def get_device(self):
-    if self.op is UOps.BUFFER: return self.arg[0]
-    devices = [x.get_device for x in self.src]
-    non_none_devices = [x for x in devices if x is not None]
-    if len(non_none_devices) == 0: return None
-    assert all_same(non_none_devices), f"device mismatch {non_none_devices}"
-    if self.op is UOps.COPY: return self.arg
-    return non_none_devices[0]
-  @property
-  def device(self) -> str: return self.get_device
-
-  def copy_to_device(self, device):
-    return UOp(UOps.COPY, self.dtype, (self,), device)
-
-  # TODO: this is stupid
-  @property
-  def lbs(self): return [self]
-
-  # *** shape moved from LazyBuffer ***
-  @functools.cached_property
-  def get_shape(self):
-    if self.op in {UOps.SHAPETRACKER, UOps.SWIZZLE}: return unwrap(self.st).shape
-    if self.op is UOps.BUFFER: return (self.arg[1],)
-    if self.op is UOps.CONST: return None
-    shapes = [x.get_shape for x in self.src]
-    non_none_shapes = [x for x in shapes if x is not None]
-    if len(non_none_shapes) == 0: return None
-    assert all_same(non_none_shapes), f"shape mismatch {non_none_shapes}, {self}"
-    ret = list(non_none_shapes[0])
-    if self.op is UOps.REDUCE_AXIS:
-      for axis in self.arg[1]: ret[axis] = 1
-    return tuple(ret)
-  @property
-  def shape(self) -> Tuple[sint, ...]: return unwrap(self.get_shape)
-
-  @property
-  def size(self) -> sint: return prod(self.shape)
-
-  def r(self, op, axis): return UOp(UOps.REDUCE_AXIS, self.dtype, (self,), (REDUCE_ALU[op], axis))
-
-  # this breaks the graph on kernel boundary
-  def contiguous(self): return UOp(UOps.CONTIGUOUS, self.dtype, (self,))
-
-  # TODO: this is broken
-  def is_realized(self): return False
-
-  # *** movement ops from LazyBuffer
-  @property
-  def st_shape(self) -> ShapeTracker:
-    from toonygrad.shape.shapetracker import ShapeTracker
-    shape = self.get_shape
-    if shape is None: return ShapeTracker.from_shape(tuple())
-    return ShapeTracker.from_shape(shape)
-  def _swizzle(self, method, arg):
-    return UOp(UOps.SWIZZLE, self.dtype, (self,), self.st_shape.__getattribute__(method)(arg))
-
-  def reshape(self, shape): return self._swizzle('reshape', shape)
-  def expand(self, shape): return self._swizzle('expand', shape)
-  def permute(self, arg): return self._swizzle('permute', arg)
-  def pad(self, arg): return self._swizzle('pad', arg)
-  def shrink(self, arg): return self._swizzle('shrink', arg)
-  def stride(self, arg): return self._swizzle('stride', arg)
 
 @dataclass(frozen=True)
 class KernelInfo:
