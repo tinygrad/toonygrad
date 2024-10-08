@@ -1,10 +1,15 @@
-from typing import List, Dict
+from typing import List, Dict, Tuple
+from dataclasses import dataclass
 from toonygrad.ops import UOp, graph_rewrite, PatternMatcher, UPat, UOps, symbolic, track_rewrites
 from toonygrad.engine.lazy import LazyBuffer
+from toonygrad.shape.symbolic import Variable
 from toonygrad.shape.shapetracker import ShapeTracker
+from toonygrad.device import Buffer
 
+@dataclass(frozen=True)
 class ScheduleItem:
-  pass
+  ast: UOp
+  bufs: Tuple[Buffer, ...]
 
 pm = symbolic+PatternMatcher([
   # merge swizzle
@@ -39,14 +44,24 @@ break_sched = PatternMatcher([
   (UPat(UOps.LOAD, src=(UPat(), UPat(), UPat()), name="ld"), lambda k,ld: UOp.load(ld.src[0], ld.src[1], dtype=ld.dtype)),
 ])
 
+def append_buffer(b:List[Buffer], base:UOp):
+  if base.buffer not in b: b.append(base.buffer)
+  # should this be the ptr, or the buffer?
+  return UOp(UOps.DEFINE_GLOBAL, base.dtype.ptr(), (), b.index(base.buffer))
+enumerate_bufs = PatternMatcher([(UPat(UOps.BUFFER, name="base"), append_buffer)])
+
 @track_rewrites
-def _schedule_rewrite(sink):
+def _schedule_rewrite(sink:UOp) -> List[ScheduleItem]:
   sink = graph_rewrite(sink, create_buffers, {})
   graph_rewrite(sink, break_sched, sched:=[])
-  return sched
+  ret = []
+  for s in sched:
+    ast = graph_rewrite(s, enumerate_bufs, bufs:=[])
+    ret.append(ScheduleItem(ast, bufs))
+  return ret
 
-def create_schedule_with_vars(sched:List[UOp]):
-  # TODO: should the input be a SINK?
+def create_schedule_with_vars(sched:List[UOp]) -> Tuple[List[ScheduleItem], Dict[Variable, int]]:
+  # TODO: the input should be a SINK
   sink = UOp.sink(*sched)
   sink = graph_rewrite(sink, pm)
   sched = _schedule_rewrite(sink)
