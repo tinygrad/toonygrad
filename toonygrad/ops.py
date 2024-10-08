@@ -1,6 +1,5 @@
 from __future__ import annotations
 from typing import Any, List, Optional, Set, Union, Tuple, Dict, Callable, cast, TYPE_CHECKING, TypeVar
-from types import FrameType
 import sys, time, functools, itertools, math, operator, hashlib, os, types, pickle
 from enum import auto, IntEnum, Enum
 from dataclasses import dataclass, field
@@ -8,9 +7,11 @@ from weakref import WeakValueDictionary
 from toonygrad.dtype import ConstType, ImageDType, PtrDType, dtypes, DType, truncate
 from toonygrad.helpers import ContextVar, prod, getenv, all_same, unwrap
 if TYPE_CHECKING:
+  from toonygrad.device import Buffer
   from toonygrad.shape.symbolic import Variable, sint
   from toonygrad.shape.shapetracker import ShapeTracker
-  from toonygrad.device import Buffer
+
+buffers: Dict[UOp, Buffer] = {}
 
 # wrapper around IntEnum that preserves Enum.__str__ and makes auto() unique across all FastEnum subclasses
 class FastEnum(IntEnum):
@@ -101,11 +102,13 @@ def identity_element(op:BinaryOps, dt:DType): return dtypes.as_const({BinaryOps.
 class UOps(FastEnum):
   # uops that aren't rendered
   SINK = auto()
-
-  # MetaOps
-  EXT = auto()
-  COPY = auto()
   CONTIGUOUS = auto()
+
+  # metaops
+  CUSTOM = auto()
+  COPY = auto()
+  EMPTY = auto()
+  VIEW = auto()
 
   EXPAND = auto()
   CONTRACT = auto()
@@ -175,8 +178,6 @@ def pretty_print(x:Any, rep:Callable, srcfn=lambda x: x.src, cache=None, d=0)->s
   if (cx:=cache.setdefault(x, [0,0,False]))[2]: return f"{' '*d} x{cx[0]}"
   cx[2], srcs = True, ('None' if srcfn(x) is None else ''.join(f'\n{pretty_print(s, rep, srcfn, cache, d+2)},' for s in srcfn(x)))
   return f"{' '*d}{f'x{cx[0]}:=' * (cx[1]>1)}{rep(x)}" % srcs
-
-buffers: Dict[UOp, Buffer] = {}
 
 ucache:WeakValueDictionary[Tuple, UOp] = WeakValueDictionary()
 class UOp(MathTrait):
@@ -301,6 +302,78 @@ class UOp(MathTrait):
   @functools.cached_property
   def full_shape(self) -> Tuple[sint, ...]:
     return self.arg.shape if self.op is UOps.SHAPETRACKER else tuple(smax(x) for x in zip(*[x.full_shape for x in self.src if x.has_st]))
+  def vars(self) -> Set[UOp]:
+    bound_vars = set([x for x in self.sparents if x.op is UOps.BIND and x.src[0].op is UOps.DEFINE_VAR])
+    bound_var_base = set(x.src[0] for x in bound_vars)
+    all_vars = set([x for x in self.sparents if x.op is UOps.DEFINE_VAR])
+    return bound_vars.union(set([x for x in all_vars if x not in bound_var_base]))
+  def variables(self) -> List[Variable]:
+    st_vars: List[Set[Variable]] = [x.st_arg.vars() for x in self.sparents if x.op in BUFFER_UOPS]
+    from toonygrad.shape.symbolic import Variable
+    return sorted(set.union(*st_vars, [x.unbind()[0] if not isinstance(x, Variable) else x for x in self.vars()]), key=lambda v: v.arg)
+  def const_factor(self) -> int:
+    """largest known int that divides self"""
+    if self.op is UOps.CONST: return self.arg
+    if self.op is UOps.VCONST: return functools.reduce(math.gcd, self.arg)
+    if self.op is UOps.ALU:
+      if self.arg is BinaryOps.ADD: return math.gcd(self.src[0].const_factor(), self.src[1].const_factor())
+      if self.arg is BinaryOps.MUL: return self.src[0].arg if self.src[0].op is UOps.CONST else self.src[1].arg if self.src[1].op is UOps.CONST else 1
+    return 1
+  def divides(self, v) -> Optional[UOp]:
+    if v==1: return self
+    if self.op is UOps.CONST: return self.const_like(self.arg//v) if self.arg%v == 0 else None
+    if self.op is UOps.VCONST: return self.const_like(tuple(x//v for x in self.arg)) if all(x%v == 0 for x in self.arg) else None
+    if self.op is UOps.ALU:
+      if self.arg is BinaryOps.ADD: return d0+d1 if (d0:=self.src[0].divides(v)) is not None and (d1:=self.src[1].divides(v)) is not None else None
+      if self.arg is BinaryOps.MUL:
+        if (d0:=self.src[0].divides(v)) is not None: return d0 * self.src[1]
+        if (d1:=self.src[1].divides(v)) is not None: return self.src[0] * d1
+    return None # generic None if we aren't sure
+  @property
+  def vmin(self) -> ConstType: return self._min_max[0]
+  @property
+  def vmax(self) -> ConstType: return self._min_max[1]
+  @functools.cached_property
+  def _min_max(self) -> Tuple[ConstType, ConstType]:
+    # NOTE: returned UOp is assumed to be CONST
+    if self.op is UOps.DEFINE_VAR and self.arg: return self.arg[1], self.arg[2]
+    if self.op is UOps.RANGE: return self.src[0].vmin, (self.src[1]-1).vmax
+    if self.op is UOps.BIND: return self.src[0].vmin, self.src[0].vmax  # ignore the bound value
+    if self.op is UOps.EXPAND: return min(x.vmin for x in self.src), max(x.vmax for x in self.src)
+    # TODO: UOps.SPECIAL is UOps.DEFINE_VAR
+    if self.op is UOps.SPECIAL: return 0, self.arg[1]-1 if isinstance(self.arg[1], int) else dtypes.max(self.dtype)
+    if self.op is UOps.CONST: return self.arg, self.arg
+    if self.op is UOps.VCONST: return (min(self.arg), max(self.arg))
+    if self.op is UOps.ALU and self.dtype.count == 1:
+      s0,s1,s2 = [cast(UOp, self.src[i] if i < len(self.src) else None) for i in range(3)]
+      if self.arg is BinaryOps.ADD: return s0.vmin+s1.vmin, s0.vmax+s1.vmax
+      if self.arg is BinaryOps.MUL:
+        # both are non-positive
+        if (s0.vmax <= 0 and s1.vmax <= 0): return s0.vmax*s1.vmax, s0.vmin*s1.vmin
+        # at lease one is non-negative
+        if (s0.vmin >= 0 or s1.vmin >= 0):
+          Lmin, Lmax = (s0.vmin, s0.vmax) if s1.vmin >= 0 else (s0.vmax, s0.vmin)
+          Rmin, Rmax = (s1.vmin, s1.vmax) if s0.vmin >= 0 else (s1.vmax, s1.vmin)
+          return Lmin*Rmin, Lmax*Rmax
+      if self.arg is BinaryOps.MOD and s1.vmin > 0: return 0, s1.vmax-1
+      if self.arg is BinaryOps.IDIV and s1.op is UOps.CONST:
+        if s1.arg > 0: return s0.vmin//s1.arg, s0.vmax//s1.arg
+        if s1.arg < 0: return -(s0.vmax//-s1.arg), -(s0.vmin//-s1.arg)
+      if self.arg is BinaryOps.MAX: return max(s0.vmin, s1.vmin), max(s0.vmax, s1.vmax)
+      if self.arg is BinaryOps.CMPLT: return (s0.vmax<s1.vmin, s0.vmin<s1.vmax)
+      if self.arg is BinaryOps.CMPNE:
+        always_ne = (s0.vmax < s1.vmin) or (s1.vmax < s0.vmin)
+        sometimes_ne = not (s0.vmin == s0.vmax == s1.vmin == s1.vmax)
+        return (always_ne, sometimes_ne)
+      # float has NAN issue and we use explicit NAN in transcendental
+      if self.arg is TernaryOps.WHERE and dtypes.is_int(s1.dtype): return min(s1.vmin, s2.vmin), max(s1.vmax, s2.vmax)
+      if self.dtype is dtypes.bool:
+        if self.arg is BinaryOps.OR: return s0.vmin or s1.vmin, s0.vmax or s1.vmax
+        if self.arg is BinaryOps.AND: return s0.vmin and s1.vmin, s0.vmax and s1.vmax
+    return dtypes.min(self.dtype), dtypes.max(self.dtype)
+  def render(self, simplify=True) -> str:
+    ret = graph_rewrite(self.simplify() if simplify else self, renderer)
+    return ret.arg if ret.op is UOps.NOOP else str(ret)
 
   # *** buffer moved from LazyBuffer ***
   @property
@@ -376,79 +449,6 @@ class UOp(MathTrait):
   def pad(self, arg): return self._swizzle('pad', arg)
   def shrink(self, arg): return self._swizzle('shrink', arg)
   def stride(self, arg): return self._swizzle('stride', arg)
-
-  def vars(self) -> Set[UOp]:
-    bound_vars = set([x for x in self.sparents if x.op is UOps.BIND and x.src[0].op is UOps.DEFINE_VAR])
-    bound_var_base = set(x.src[0] for x in bound_vars)
-    all_vars = set([x for x in self.sparents if x.op is UOps.DEFINE_VAR])
-    return bound_vars.union(set([x for x in all_vars if x not in bound_var_base]))
-  def variables(self) -> List[Variable]:
-    st_vars: List[Set[Variable]] = [x.st_arg.vars() for x in self.sparents if x.op in BUFFER_UOPS]
-    from toonygrad.shape.symbolic import Variable
-    return sorted(set.union(*st_vars, [x.unbind()[0] if not isinstance(x, Variable) else x for x in self.vars()]), key=lambda v: v.arg)
-  def const_factor(self) -> int:
-    """largest known int that divides self"""
-    if self.op is UOps.CONST: return self.arg
-    if self.op is UOps.VCONST: return functools.reduce(math.gcd, self.arg)
-    if self.op is UOps.ALU:
-      if self.arg is BinaryOps.ADD: return math.gcd(self.src[0].const_factor(), self.src[1].const_factor())
-      if self.arg is BinaryOps.MUL: return self.src[0].arg if self.src[0].op is UOps.CONST else self.src[1].arg if self.src[1].op is UOps.CONST else 1
-    return 1
-  def divides(self, v) -> Optional[UOp]:
-    if v==1: return self
-    if self.op is UOps.CONST: return self.const_like(self.arg//v) if self.arg%v == 0 else None
-    if self.op is UOps.VCONST: return self.const_like(tuple(x//v for x in self.arg)) if all(x%v == 0 for x in self.arg) else None
-    if self.op is UOps.ALU:
-      if self.arg is BinaryOps.ADD: return d0+d1 if (d0:=self.src[0].divides(v)) is not None and (d1:=self.src[1].divides(v)) is not None else None
-      if self.arg is BinaryOps.MUL:
-        if (d0:=self.src[0].divides(v)) is not None: return d0 * self.src[1]
-        if (d1:=self.src[1].divides(v)) is not None: return self.src[0] * d1
-    return None # generic None if we aren't sure
-  @property
-  def vmin(self) -> ConstType: return self._min_max[0]
-  @property
-  def vmax(self) -> ConstType: return self._min_max[1]
-  @functools.cached_property
-  def _min_max(self) -> Tuple[ConstType, ConstType]:
-    # NOTE: returned UOp is assumed to be CONST
-    if self.op is UOps.DEFINE_VAR and self.arg: return self.arg[1], self.arg[2]
-    if self.op is UOps.RANGE: return self.src[0].vmin, (self.src[1]-1).vmax
-    if self.op is UOps.BIND: return self.src[0].vmin, self.src[0].vmax  # ignore the bound value
-    if self.op is UOps.EXPAND: return min(x.vmin for x in self.src), max(x.vmax for x in self.src)
-    # TODO: UOps.SPECIAL is UOps.DEFINE_VAR
-    if self.op is UOps.SPECIAL: return 0, self.arg[1]-1 if isinstance(self.arg[1], int) else dtypes.max(self.dtype)
-    if self.op is UOps.CONST: return self.arg, self.arg
-    if self.op is UOps.VCONST: return (min(self.arg), max(self.arg))
-    if self.op is UOps.ALU and self.dtype.count == 1:
-      s0,s1,s2 = [cast(UOp, self.src[i] if i < len(self.src) else None) for i in range(3)]
-      if self.arg is BinaryOps.ADD: return s0.vmin+s1.vmin, s0.vmax+s1.vmax
-      if self.arg is BinaryOps.MUL:
-        # both are non-positive
-        if (s0.vmax <= 0 and s1.vmax <= 0): return s0.vmax*s1.vmax, s0.vmin*s1.vmin
-        # at lease one is non-negative
-        if (s0.vmin >= 0 or s1.vmin >= 0):
-          Lmin, Lmax = (s0.vmin, s0.vmax) if s1.vmin >= 0 else (s0.vmax, s0.vmin)
-          Rmin, Rmax = (s1.vmin, s1.vmax) if s0.vmin >= 0 else (s1.vmax, s1.vmin)
-          return Lmin*Rmin, Lmax*Rmax
-      if self.arg is BinaryOps.MOD and s1.vmin > 0: return 0, s1.vmax-1
-      if self.arg is BinaryOps.IDIV and s1.op is UOps.CONST:
-        if s1.arg > 0: return s0.vmin//s1.arg, s0.vmax//s1.arg
-        if s1.arg < 0: return -(s0.vmax//-s1.arg), -(s0.vmin//-s1.arg)
-      if self.arg is BinaryOps.MAX: return max(s0.vmin, s1.vmin), max(s0.vmax, s1.vmax)
-      if self.arg is BinaryOps.CMPLT: return (s0.vmax<s1.vmin, s0.vmin<s1.vmax)
-      if self.arg is BinaryOps.CMPNE:
-        always_ne = (s0.vmax < s1.vmin) or (s1.vmax < s0.vmin)
-        sometimes_ne = not (s0.vmin == s0.vmax == s1.vmin == s1.vmax)
-        return (always_ne, sometimes_ne)
-      # float has NAN issue and we use explicit NAN in transcendental
-      if self.arg is TernaryOps.WHERE and dtypes.is_int(s1.dtype): return min(s1.vmin, s2.vmin), max(s1.vmax, s2.vmax)
-      if self.dtype is dtypes.bool:
-        if self.arg is BinaryOps.OR: return s0.vmin or s1.vmin, s0.vmax or s1.vmax
-        if self.arg is BinaryOps.AND: return s0.vmin and s1.vmin, s0.vmax and s1.vmax
-    return dtypes.min(self.dtype), dtypes.max(self.dtype)
-  def render(self, simplify=True) -> str:
-    ret = graph_rewrite(self.simplify() if simplify else self, renderer)
-    return ret.arg if ret.op is UOps.NOOP else str(ret)
 
 @dataclass(frozen=True)
 class KernelInfo:
@@ -671,8 +671,17 @@ class TrackedRewriteContext:
   loc: Tuple[str, int]                                                    # location that called graph_rewrite
   sink: UOp                                                               # the sink passed into the rewrite
   rewrites: List[Tuple[UOp, UOp, UPat]] = field(default_factory=list)     # all rewrites of sparents. (before, after, UPat)
+
 rewrite_stack: List[Tuple[Any, List[TrackedRewriteContext]]] = []
 contexts: List[Tuple[Any, List[TrackedRewriteContext]]] = []
+def track_rewrites(func):
+  def __wrapper(self, *args, **kwargs):
+    if TRACK_MATCH_STATS >= 2: rewrite_stack.append((self, []))
+    ret = func(self, *args, **kwargs)
+    if TRACK_MATCH_STATS >= 2: contexts.append(rewrite_stack.pop())
+    return ret
+  return __wrapper
+
 class TrackedPatternMatcher(PatternMatcher):
   def __init__(self, patterns:List[Tuple[UPat, Callable]]):
     super().__init__(patterns)
@@ -733,17 +742,9 @@ class RewriteContext:
     return ret
 
 def graph_rewrite(sink:UOp, pm:PatternMatcher, ctx=None) -> UOp:
-  if TRACK_MATCH_STATS >= 2:
-    #from toonygrad.codegen.kernel import Kernel
-    #frm = sys._getframe(1)
-    # get Kernel we are rewriting in the context of
-    #frm_walk: Optional[FrameType] = frm
-    #while frm_walk is not None and not isinstance(kernel:=frm_walk.f_locals.get("self", None), Kernel): kernel, frm_walk = None, frm_walk.f_back
-    kernel = "test"
-    rewrite_stack.append((kernel, [TrackedRewriteContext(((frm:=sys._getframe(1)).f_code.co_filename, frm.f_lineno), sink)]))
-  ret = RewriteContext(pm, ctx).rewrite(sink)
-  if TRACK_MATCH_STATS >= 2: contexts.append(rewrite_stack.pop())
-  return ret
+  if TRACK_MATCH_STATS >= 2 and len(rewrite_stack) != 0:
+    rewrite_stack[-1][1].append(TrackedRewriteContext(((frm:=sys._getframe(1)).f_code.co_filename, frm.f_lineno), sink))
+  return RewriteContext(pm, ctx).rewrite(sink)
 
 # ***** uop type spec *****
 
