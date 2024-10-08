@@ -7,7 +7,6 @@ from weakref import WeakValueDictionary
 from toonygrad.dtype import ConstType, ImageDType, PtrDType, dtypes, DType, truncate
 from toonygrad.helpers import ContextVar, prod, getenv, all_same, unwrap
 if TYPE_CHECKING:
-  from toonygrad.device import Buffer
   from toonygrad.shape.symbolic import Variable, sint
   from toonygrad.shape.shapetracker import ShapeTracker
 
@@ -375,16 +374,6 @@ class UOp(MathTrait):
     ret = graph_rewrite(self.simplify() if simplify else self, renderer)
     return ret.arg if ret.op is UOps.NOOP else str(ret)
 
-  # *** buffer moved from LazyBuffer ***
-  @property
-  def buffer(self) -> Buffer:
-    if self.op is UOps.SWIZZLE: return self.src[0].buffer  # wrong if non reshape
-    assert self.op == UOps.BUFFER
-    if (ret:=buffers.get(self, None)) is not None: return ret
-    from toonygrad.device import Buffer
-    ret = buffers[self] = Buffer(self.arg[0], self.arg[1], self.dtype)
-    return ret
-
   # *** device moved from LazyBuffer ***
   @functools.cached_property
   def get_device(self):
@@ -397,9 +386,6 @@ class UOp(MathTrait):
     return non_none_devices[0]
   @property
   def device(self) -> str: return self.get_device
-
-  def copy_to_device(self, device):
-    return UOp(UOps.COPY, self.dtype, (self,), device)
 
   # TODO: this is stupid
   @property
@@ -425,14 +411,6 @@ class UOp(MathTrait):
   @property
   def size(self) -> sint: return prod(self.shape)
 
-  def r(self, op, axis): return UOp(UOps.REDUCE_AXIS, self.dtype, (self,), (REDUCE_ALU[op], axis))
-
-  # this breaks the graph on kernel boundary
-  def contiguous(self): return UOp(UOps.CONTIGUOUS, self.dtype, (self,))
-
-  # TODO: this is broken
-  def is_realized(self): return False
-
   # *** movement ops from LazyBuffer
   @property
   def st_shape(self) -> ShapeTracker:
@@ -440,15 +418,6 @@ class UOp(MathTrait):
     shape = self.get_shape
     if shape is None: return ShapeTracker.from_shape(tuple())
     return ShapeTracker.from_shape(shape)
-  def _swizzle(self, method, arg):
-    return UOp(UOps.SWIZZLE, self.dtype, (self,), self.st_shape.__getattribute__(method)(arg))
-
-  def reshape(self, shape): return self._swizzle('reshape', shape)
-  def expand(self, shape): return self._swizzle('expand', shape)
-  def permute(self, arg): return self._swizzle('permute', arg)
-  def pad(self, arg): return self._swizzle('pad', arg)
-  def shrink(self, arg): return self._swizzle('shrink', arg)
-  def stride(self, arg): return self._swizzle('stride', arg)
 
 @dataclass(frozen=True)
 class KernelInfo:
