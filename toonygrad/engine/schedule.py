@@ -32,9 +32,9 @@ def _schedule_rewrite(sink):
   sched.append(graph_rewrite(sink, break_sched, []))
   return sched
 
-def create_schedule_with_vars(sched:List[LazyBuffer]):
+def create_schedule_with_vars(sched:List[UOp]):
   # TODO: should the input be a SINK?
-  sched = _schedule_rewrite(UOp.sink(*[x.uop for x in sched]))
+  sched = _schedule_rewrite(UOp.sink(*sched))
   print(len(sched))
   #print(sink)
   return sched, {}

@@ -9,6 +9,9 @@ from toonygrad.helpers import ContextVar, prod, getenv, all_same, unwrap
 if TYPE_CHECKING:
   from toonygrad.shape.symbolic import Variable, sint
   from toonygrad.shape.shapetracker import ShapeTracker
+  from toonygrad.device import Buffer
+
+buffers: Dict[UOp, Buffer] = {}
 
 # wrapper around IntEnum that preserves Enum.__str__ and makes auto() unique across all FastEnum subclasses
 class FastEnum(IntEnum):
@@ -372,7 +375,16 @@ class UOp(MathTrait):
     ret = graph_rewrite(self.simplify() if simplify else self, renderer)
     return ret.arg if ret.op is UOps.NOOP else str(ret)
 
-  # *** device moved from LazyBuffer ***
+  # *** this was LazyBuffer ***
+
+  def copy_to_device(self, device): return UOp(UOps.COPY, self.dtype, (self,), device)
+  def r(self, op, axis): return UOp(UOps.REDUCE_AXIS, self.dtype, (self,), (REDUCE_ALU[op], axis))
+  def contiguous(self): return UOp(UOps.CONTIGUOUS, self.dtype, (self,))
+  def is_realized(self): return self in buffers
+
+  @property
+  def lbs(self): return [self]
+
   @functools.cached_property
   def device(self):
     if self.op is UOps.BUFFER: return self.arg[0]
@@ -383,7 +395,6 @@ class UOp(MathTrait):
     assert all_same(non_none_devices), f"device mismatch {non_none_devices}"
     return non_none_devices[0]
 
-  # *** shape moved from LazyBuffer ***
   @functools.cached_property
   def shape(self):
     if self.op in {UOps.SHAPETRACKER, UOps.SWIZZLE}: return unwrap(self.st).shape
@@ -400,6 +411,37 @@ class UOp(MathTrait):
 
   @property
   def size(self) -> sint: return prod(self.shape)
+
+  @property
+  def buffer(self) -> Buffer:
+    from toonygrad.device import Buffer
+    if (ret:=buffers.get(self)) is not None: return ret
+    if self.op is UOps.SWIZZLE: return self.src[0].buffer
+    assert self.op == UOps.BUFFER, f"no buffer on {self.op}"
+    buffers[self] = ret = Buffer(self.arg[0], self.arg[1], self.dtype)
+    return ret
+
+  buffer_num = -1
+  @staticmethod
+  def metaop(op, shape, dtype, device, arg=None, src=None):
+    if op is MetaOps.CONST:
+      return UOp.const(dtype, arg).copy_to_device(device).reshape(shape)
+    if op is MetaOps.EMPTY:
+      UOp.buffer_num += 1
+      return UOp(UOps.BUFFER, dtype, arg=(device, prod(shape), UOp.buffer_num)).reshape(shape)
+    raise Exception(f"unhandled MetaOp {op}")
+
+  # movement functions
+  def _swizzle(self, method, arg):
+    from toonygrad.shape.shapetracker import ShapeTracker
+    st = ShapeTracker.from_shape(tuple() if self.shape is None else self.shape)
+    return UOp(UOps.SWIZZLE, self.dtype, (self,), st.__getattribute__(method)(arg))
+  def reshape(self, shape): return self._swizzle('reshape', shape)
+  def expand(self, shape): return self._swizzle('expand', shape)
+  def permute(self, arg): return self._swizzle('permute', arg)
+  def pad(self, arg): return self._swizzle('pad', arg)
+  def shrink(self, arg): return self._swizzle('shrink', arg)
+  def stride(self, arg): return self._swizzle('stride', arg)
 
 @dataclass(frozen=True)
 class KernelInfo:

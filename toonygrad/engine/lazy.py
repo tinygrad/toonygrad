@@ -6,6 +6,10 @@ from toonygrad.shape.shapetracker import ShapeTracker
 from toonygrad.helpers import all_same, unwrap, prod
 from toonygrad.device import Buffer
 
+# LazyBuffer is UOp! This is fundamental
+LazyBuffer = UOp
+
+"""
 # LazyBuffer is where UOp are bound to Buffer
 class LazyBuffer(MathTrait):
   buffer_num = -1
@@ -81,3 +85,4 @@ class LazyBuffer(MathTrait):
   def pad(self, arg): return self._swizzle('pad', arg)
   def shrink(self, arg): return self._swizzle('shrink', arg)
   def stride(self, arg): return self._swizzle('stride', arg)
+"""
