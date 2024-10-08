@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 from toonygrad import Tensor
 
+# PYTHONPATH="." VIZ=1 CLANG=1 ./simple_test.py
+
 if __name__ == "__main__":
   from toonygrad.nn.state import get_parameters
   from beautiful_mnist import Model
