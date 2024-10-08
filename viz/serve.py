@@ -55,7 +55,7 @@ def get_metadata(contexts:List[Tuple[Any, List[TrackedRewriteContext]]]) -> List
   return list(kernels.values())
 
 def _uop_to_json(x:UOp) -> Dict[int, Tuple[str, str, List[int], str, str]]:
-  assert isinstance(x, UOp)
+  assert isinstance(x, UOp), f"x isn't UOp {type(x)}"
   graph: Dict[int, Tuple[str, str, List[int], str, str]] = {}
   for u in x.sparents:
     if u.op is UOps.CONST: continue

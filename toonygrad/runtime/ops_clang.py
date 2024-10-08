@@ -29,5 +29,4 @@ class ClangProgram:
 
 class ClangDevice(Compiled):
   def __init__(self, device:str):
-    from toonygrad.runtime.graph.clang import ClangGraph
-    super().__init__(device, MallocAllocator, ClangRenderer(), ClangCompiler(), ClangProgram, ClangGraph)
+    super().__init__(device, MallocAllocator, ClangRenderer(), ClangCompiler(), ClangProgram)
