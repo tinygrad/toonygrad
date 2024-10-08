@@ -399,6 +399,7 @@ class UOp(MathTrait):
   def shape(self):
     if self.op in {UOps.SHAPETRACKER, UOps.SWIZZLE}: return unwrap(self.st).shape
     if self.op is UOps.BUFFER: return (self.arg[1],)
+    if self.op in {UOps.LOAD, UOps.STORE}: return self.src[1].shape
     if self.op is UOps.CONST: return None
     shapes = [x.shape for x in self.src]
     non_none_shapes = [x for x in shapes if x is not None]
@@ -423,12 +424,16 @@ class UOp(MathTrait):
 
   buffer_num = -1
   @staticmethod
+  def new_buffer(dtype, device, size):
+    UOp.buffer_num += 1
+    return UOp(UOps.BUFFER, dtype, arg=(device, size, UOp.buffer_num))
+
+  @staticmethod
   def metaop(op, shape, dtype, device, arg=None, src=None):
     if op is MetaOps.CONST:
       return UOp.const(dtype, arg).copy_to_device(device).reshape(shape)
     if op is MetaOps.EMPTY:
-      UOp.buffer_num += 1
-      return UOp(UOps.BUFFER, dtype, arg=(device, prod(shape), UOp.buffer_num)).reshape(shape)
+      return UOp.new_buffer(dtype, device, prod(shape)).reshape(shape)
     raise Exception(f"unhandled MetaOp {op}")
 
   # movement functions

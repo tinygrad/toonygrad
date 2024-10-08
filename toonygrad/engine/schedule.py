@@ -1,6 +1,7 @@
-from typing import List
+from typing import List, Dict
 from toonygrad.ops import UOp, graph_rewrite, PatternMatcher, UPat, UOps, symbolic, track_rewrites
 from toonygrad.engine.lazy import LazyBuffer
+from toonygrad.shape.shapetracker import ShapeTracker
 
 class ScheduleItem:
   pass
@@ -20,23 +21,35 @@ pm = symbolic+PatternMatcher([
     lambda s,c: c if all(x.mask is None for x in s.st.views) else None),
 ])
 
-def append_kernel(k:List[UOp], base:UOp, x:UOp):
-  k.append(x.sink())
-  return base.replace(src=())
+def create_buffer(ctx:Dict[UOp, UOp], store_me:UOp, load_me:UOp):
+  if (stored:=ctx.get(store_me)) is None:
+    buffer = UOp.new_buffer(store_me.dtype, store_me.device, store_me.size)
+    stored = ctx[store_me] = UOp.store(buffer, ShapeTracker.from_shape(store_me.shape).to_uop(), store_me)
+  return UOp.load(stored.src[0], load_me.st.to_uop(), stored, dtype=load_me.dtype)
+
+create_buffers = PatternMatcher([
+  (UPat(UOps.SWIZZLE, src=(UPat(UOps.BUFFER, name='store_me'),), name="load_me"),
+   lambda ctx, store_me, load_me: UOp.load(store_me, load_me.st.to_uop(), dtype=load_me.dtype)),
+  (UPat(UOps.SWIZZLE, src=(UPat.var('store_me'),), name="load_me"), create_buffer),
+])
+
+def append_kernel(k:List[UOp], base:UOp): k.append(base.sink())
 break_sched = PatternMatcher([
-  (UPat(UOps.SWIZZLE, src=(UPat.var('x'),), name="base"), append_kernel),
+  (UPat(UOps.STORE, name="base"), append_kernel),
+  (UPat(UOps.LOAD, src=(UPat(), UPat(), UPat()), name="ld"), lambda k,ld: UOp.load(ld.src[0], ld.src[1], dtype=ld.dtype)),
 ])
 
 @track_rewrites
 def _schedule_rewrite(sink):
-  sink = graph_rewrite(sink, pm)
-  sched = []
-  sched.append(graph_rewrite(sink, break_sched, []))
+  sink = graph_rewrite(sink, create_buffers, {})
+  graph_rewrite(sink, break_sched, sched:=[])
   return sched
 
 def create_schedule_with_vars(sched:List[UOp]):
   # TODO: should the input be a SINK?
-  sched = _schedule_rewrite(UOp.sink(*sched))
+  sink = UOp.sink(*sched)
+  sink = graph_rewrite(sink, pm)
+  sched = _schedule_rewrite(sink)
   print(len(sched))
   #print(sink)
   return sched, {}
