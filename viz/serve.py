@@ -4,10 +4,16 @@ from http.server import HTTPServer, BaseHTTPRequestHandler
 from urllib.parse import parse_qs, urlparse
 from dataclasses import asdict, dataclass
 from typing import Any, Dict, List, Tuple, Optional
-from tinygrad.helpers import getenv, to_function_name, tqdm
-from tinygrad.ops import TrackedRewriteContext, UOp, UOps, lines
-from tinygrad.engine.graph import word_wrap, uops_colors
-from tinygrad.codegen.kernel import Kernel
+from toonygrad.helpers import getenv, to_function_name, tqdm
+from toonygrad.ops import TrackedRewriteContext, UOp, UOps, lines
+
+uops_colors = {UOps.ALU: "#ffffc0", UOps.LOAD: "#ffc0c0", UOps.STORE: "#c0ffc0", UOps.CONST: "#e0e0e0", UOps.VCONST: "#e0e0e0",
+               UOps.DEFINE_GLOBAL: "#ffe0b0", UOps.DEFINE_LOCAL: "#ffe0d0", UOps.DEFINE_ACC: "#f0ffe0", UOps.REDUCE: "#C4A484",
+               UOps.RANGE: "#c8a0e0", UOps.ASSIGN: "#e0ffc0", UOps.BARRIER: "#ff8080", UOps.IF: "#c8b0c0", UOps.SPECIAL: "#c0c0ff",
+               UOps.WMMA: "#efefc0", UOps.SWIZZLE: "#7ACD93", UOps.SHAPETRACKER: "#C8F9D4", UOps.REDUCE_AXIS: "#f58488"}
+def word_wrap(x, wrap=80): return x if len(x) <= wrap else (x[0:wrap] + "\n" + word_wrap(x[wrap:], wrap))
+
+class Kernel: pass
 
 # ** API spec
 
