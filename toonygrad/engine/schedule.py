@@ -1,5 +1,6 @@
 from typing import List
 from toonygrad.ops import UOp, graph_rewrite, PatternMatcher, UPat, UOps, symbolic
+from toonygrad.engine.lazy import LazyBuffer
 
 class ScheduleItem:
   pass
@@ -24,9 +25,9 @@ break_sched = PatternMatcher([
   (UPat(UOps.SWIZZLE, src=(UPat.var('x'),), name="base"), append_kernel),
 ])
 
-def create_schedule_with_vars(sched:List[UOp]):
+def create_schedule_with_vars(sched:List[LazyBuffer]):
   # TODO: should the input be a SINK?
-  sink = UOp.sink(*sched)
+  sink = UOp.sink(*[x.uop for x in sched])
   sink = graph_rewrite(sink, pm)
   sched = []
   sched.append(graph_rewrite(sink, break_sched, []))

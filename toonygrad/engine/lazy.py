@@ -21,9 +21,13 @@ class LazyBuffer(MathTrait):
   @property
   def size(self): return self.uop.size
   @property
-  def shape(self): return self.uop.shape
+  def shape(self):
+    assert self.uop.shape is not None, self.uop
+    return self.uop.shape
   @property
-  def device(self): return self.uop.device
+  def device(self):
+    assert self.uop.device is not None, self.uop
+    return self.uop.device
 
   @property
   def buffer(self) -> Buffer:
@@ -50,15 +54,30 @@ class LazyBuffer(MathTrait):
   # proxy functions
   def copy_to_device(self, device): return LazyBuffer(UOp(UOps.COPY, self.dtype, (self.uop,), device))
   def r(self, op, axis): return LazyBuffer(UOp(UOps.REDUCE_AXIS, self.dtype, (self.uop,), (REDUCE_ALU[op], axis)))
-  def alu(self, arg, *src): return LazyBuffer(UOp(UOps.ALU, self.dtype, tuple(x.uop for x in src), arg))
+  def alu(self, arg, *src):
+    srcs = (self,)+src
+    shapes = [x.uop.shape for x in srcs]
+    non_none_shapes = [x for x in shapes if x is not None]
+    assert len(non_none_shapes) != 0 and all_same(non_none_shapes)
+    my_shape = non_none_shapes[0]
+    return LazyBuffer(UOp(UOps.ALU, self.dtype, tuple(x.uop if x.uop.shape == my_shape else x.reshape((1,)*len(my_shape)).expand(my_shape).uop for x in srcs), arg))
   def cast(self, dtype): return LazyBuffer(self.uop.cast(dtype))
   def bitcast(self, dtype): return LazyBuffer(self.uop.bitcast(dtype))
   def contiguous(self): return LazyBuffer(UOp(UOps.CONTIGUOUS, self.dtype, (self.uop,)))
   def const_like(self, b): return LazyBuffer(self.uop.const_like(b))
 
+  @property
+  def lbs(self): return [self]
+
   # movement functions
+  @property
+  def st_shape(self) -> ShapeTracker:
+    from toonygrad.shape.shapetracker import ShapeTracker
+    shape = self.uop.shape
+    if shape is None: return ShapeTracker.from_shape(tuple())
+    return ShapeTracker.from_shape(shape)
   def _swizzle(self, method, arg):
-    return LazyBuffer(UOp(UOps.SWIZZLE, self.dtype, (self.uop,), self.uop.st_shape.__getattribute__(method)(arg)))
+    return LazyBuffer(UOp(UOps.SWIZZLE, self.dtype, (self.uop,), self.st_shape.__getattribute__(method)(arg)))
   def reshape(self, shape): return self._swizzle('reshape', shape)
   def expand(self, shape): return self._swizzle('expand', shape)
   def permute(self, arg): return self._swizzle('permute', arg)
