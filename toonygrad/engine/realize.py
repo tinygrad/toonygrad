@@ -38,10 +38,12 @@ def _rewrite_kernel(s:UOp, opts:Renderer) -> UOp:
   return sink
 
 def run_schedule(schedule:List[ScheduleItem], var_vals, do_update_stats=False):
-  for s in schedule:
-    opts = Device[s.ast.device].renderer
-    sink = _rewrite_kernel(s.ast, opts)
-    src = opts.render("kernel", linearize_uop(sink))
-    print(src)
+  for si in schedule:
+    dev = Device[si.ast.device]
+    sink = _rewrite_kernel(si.ast, dev.renderer)
+    src = dev.renderer.render("kernel", linearize_uop(sink))
+    lib = dev.compiler.compile_cached(src)
+    prg = dev.runtime("kernel", lib)
+    prg(*[x.ensure_allocated()._buf for x in si.bufs])
 
 def memory_planner(x): return x
