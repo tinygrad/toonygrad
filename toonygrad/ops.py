@@ -10,8 +10,6 @@ if TYPE_CHECKING:
   from toonygrad.shape.symbolic import Variable, sint
   from toonygrad.shape.shapetracker import ShapeTracker
 
-buffers: Dict[UOp, Buffer] = {}
-
 # wrapper around IntEnum that preserves Enum.__str__ and makes auto() unique across all FastEnum subclasses
 class FastEnum(IntEnum):
   def __str__(self): return Enum.__str__(self)
