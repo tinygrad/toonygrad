@@ -51,5 +51,4 @@ def create_schedule_with_vars(sched:List[UOp]):
   sink = graph_rewrite(sink, pm)
   sched = _schedule_rewrite(sink)
   print(len(sched))
-  #print(sink)
   return sched, {}
