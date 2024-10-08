@@ -13,6 +13,8 @@ pm = symbolic+PatternMatcher([
   (UPat(UOps.SWIZZLE, src=(UPat(UOps.ALU, name="alu"),), name="s"),
     lambda alu,s: UOp(UOps.ALU, alu.dtype,
                       tuple(UOp(UOps.SWIZZLE, x.dtype, (x,), s.arg) for x in alu.src), alu.arg)),
+  # const + copy = const
+  (UPat(UOps.COPY, src=(UPat.cvar('c'),)), lambda c: c),
   # const + maskless swizzle = const
   (UPat(UOps.SWIZZLE, src=(UPat.cvar('c'),), name="s"),
     lambda s,c: c if all(x.mask is None for x in s.st.views) else None),
