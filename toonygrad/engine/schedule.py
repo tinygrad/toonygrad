@@ -12,17 +12,17 @@ class ScheduleItem:
   bufs: Tuple[Buffer, ...]
 
 pm = symbolic+PatternMatcher([
-  # merge swizzle
-  (UPat(UOps.SWIZZLE, src=(UPat(UOps.SWIZZLE, name="s0"),), name="s1"),
-   lambda s0,s1: UOp(UOps.SWIZZLE, s1.dtype, s0.src, s0.arg+s1.arg)),
-  # swizzle before ALU
-  (UPat(UOps.SWIZZLE, src=(UPat(UOps.ALU, name="alu"),), name="s"),
+  # merge VIEW
+  (UPat(UOps.VIEW, src=(UPat(UOps.VIEW, name="s0"),), name="s1"),
+   lambda s0,s1: UOp(UOps.VIEW, s1.dtype, s0.src, s0.arg+s1.arg)),
+  # VIEW before ALU
+  (UPat(UOps.VIEW, src=(UPat(UOps.ALU, name="alu"),), name="s"),
     lambda alu,s: UOp(UOps.ALU, alu.dtype,
-                      tuple(UOp(UOps.SWIZZLE, x.dtype, (x,), s.arg) for x in alu.src), alu.arg)),
+                      tuple(UOp(UOps.VIEW, x.dtype, (x,), s.arg) for x in alu.src), alu.arg)),
   # const + copy = const
   (UPat(UOps.COPY, src=(UPat.cvar('c'),)), lambda c: c),
   # const + maskless swizzle = const
-  (UPat(UOps.SWIZZLE, src=(UPat.cvar('c'),), name="s"),
+  (UPat(UOps.VIEW, src=(UPat.cvar('c'),), name="s"),
     lambda s,c: c if all(x.mask is None for x in s.st.views) else None),
 ])
 
@@ -33,9 +33,9 @@ def create_buffer(ctx:Dict[UOp, UOp], store_me:UOp, load_me:UOp):
   return UOp.load(stored.src[0], load_me.st.to_uop(), stored, dtype=load_me.dtype)
 
 create_buffers = PatternMatcher([
-  (UPat(UOps.SWIZZLE, src=(UPat(UOps.BUFFER, name='store_me'),), name="load_me"),
+  (UPat(UOps.VIEW, src=(UPat(UOps.BUFFER, name='store_me'),), name="load_me"),
    lambda ctx, store_me, load_me: UOp.load(store_me, load_me.st.to_uop(), dtype=load_me.dtype)),
-  (UPat(UOps.SWIZZLE, src=(UPat.var('store_me'),), name="load_me"), create_buffer),
+  (UPat(UOps.VIEW, src=(UPat.var('store_me'),), name="load_me"), create_buffer),
 ])
 
 def append_kernel(k:List[UOp], base:UOp): k.append(base.sink())

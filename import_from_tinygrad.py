@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-import pathlib
+import os, pathlib
 
 FILES = ["tensor.py", "function.py", "helpers.py", "dtype.py", "device.py", "multi.py",
          "nn/__init__.py", "nn/datasets.py", "nn/optim.py", "nn/state.py", "ops.py",
@@ -14,7 +14,7 @@ for f in FILES:
   rd = rd.replace("from tinygrad.", "from toonygrad.")
   rd = rd.replace("import tinygrad.", "import toonygrad.")
   (dest/f).parent.mkdir(parents=True, exist_ok=True)
-  if not (dest/f).exists():
+  if not (dest/f).exists() or int(os.getenv("FORCE", "0")):
     print("importing", f)
     with open(dest/f, "w") as f: f.write(rd)
   else:

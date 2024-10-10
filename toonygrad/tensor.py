@@ -54,7 +54,7 @@ def _fromnp(x: 'np.ndarray') -> LazyBuffer:  # type: ignore [name-defined] # noq
   ret = LazyBuffer.metaop(MetaOps.EMPTY, x.shape, _from_np_dtype(x.dtype), "NPY")
   # fake realize
   ret.buffer.allocate(x)
-  del ret.srcs
+  #del ret.srcs
   return ret
 
 def get_shape(x) -> Tuple[int, ...]:
