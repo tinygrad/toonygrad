@@ -1,5 +1,5 @@
 from typing import List
-from toonygrad.codegen.lowerer import ast_to_uop
+from toonygrad.codegen.lowerer import pm_lowerer, get_index
 from toonygrad.ops import track_rewrites, UOp, UOps, BinaryOps, identity_element, PatternMatcher, UPat, graph_rewrite, symbolic_flat
 from toonygrad.device import Device
 from toonygrad.dtype import dtypes
@@ -32,8 +32,9 @@ just_reduce = PatternMatcher([
 ])
 
 @track_rewrites
-def _rewrite_kernel(s:UOp, opts:Renderer) -> UOp:
-  sink = ast_to_uop(s, opts)
+def _rewrite_kernel(sink:UOp, opts:Renderer) -> UOp:
+  # this is a total nonsense name
+  sink = graph_rewrite(sink, pm_lowerer, ctx=get_index(sink, opts))
   sink = graph_rewrite(sink, symbolic_flat+no_pyint+just_reduce)
   return sink
 
@@ -42,6 +43,7 @@ def run_schedule(schedule:List[ScheduleItem], var_vals, do_update_stats=False):
     dev = Device[si.ast.device]
     sink = _rewrite_kernel(si.ast, dev.renderer)
     src = dev.renderer.render("kernel", linearize_uop(sink))
+    print(src)
     lib = dev.compiler.compile_cached(src)
     prg = dev.runtime("kernel", lib)
     prg(*[x.ensure_allocated()._buf for x in si.bufs])
