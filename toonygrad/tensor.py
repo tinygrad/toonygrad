@@ -267,8 +267,7 @@ class Tensor:
     if 0 in self.shape: return memoryview(bytearray(0))
     # NOTE: this realizes on the object from as_buffer being a Python object
     cpu = self.cast(self.dtype.scalar()).contiguous().to("CLANG").realize()
-    buf = LazyBuffer.get_buffer(cpu)
-    #buf = cast(Buffer, cast(LazyBuffer, cpu.lazydata).base.realized)
+    buf = cast(Buffer, cast(LazyBuffer, cpu.lazydata).base.realized)
     if self.device != "CLANG": buf.options = BufferOptions(nolru=True)
     return buf.as_buffer(allow_zero_copy=True if self.device != "CLANG" else False)
 
