@@ -32,16 +32,18 @@ just_reduce = PatternMatcher([
   (UPat(UOps.REDUCE, name="root"), do_reduce),
 ])
 
+from toonygrad.codegen.kernel import Kernel
+
 @track_rewrites
-def _rewrite_kernel(sink:UOp, opts:Renderer) -> UOp:
+def _rewrite_kernel(k:Kernel, sink:UOp, opts:Renderer) -> UOp:
   sink = rewrite_shapetracker_with_index(sink, opts)
   sink = full_graph_rewrite(sink, opts)
   return sink
 
 def run_schedule(schedule:List[ScheduleItem], var_vals, do_update_stats=False):
-  for si in schedule:
+  for i,si in enumerate(schedule):
     dev = Device[si.ast.device]
-    sink = _rewrite_kernel(si.ast, dev.renderer)
+    sink = _rewrite_kernel(Kernel(f"kernel_{i}"), si.ast, dev.renderer)
     src = dev.renderer.render("kernel", linearize_uop(sink))
     print(src)
     lib = dev.compiler.compile_cached(src)
