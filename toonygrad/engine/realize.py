@@ -1,5 +1,5 @@
 from typing import List
-from toonygrad.codegen.lowerer import pm_lowerer, get_index
+from toonygrad.codegen.lowerer import rewrite_shapetracker_with_index
 from toonygrad.ops import track_rewrites, UOp, UOps, BinaryOps, identity_element, PatternMatcher, UPat, graph_rewrite, symbolic_flat
 from toonygrad.device import Device
 from toonygrad.dtype import dtypes
@@ -34,8 +34,7 @@ just_reduce = PatternMatcher([
 
 @track_rewrites
 def _rewrite_kernel(sink:UOp, opts:Renderer) -> UOp:
-  # this is a total nonsense name
-  sink = graph_rewrite(sink, pm_lowerer, ctx=get_index(sink, opts))
+  sink = rewrite_shapetracker_with_index(sink, opts)
   sink = full_graph_rewrite(sink, opts)
   return sink
 
