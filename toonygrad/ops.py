@@ -5,7 +5,7 @@ from enum import auto, IntEnum, Enum
 from dataclasses import dataclass, field
 from weakref import WeakValueDictionary
 from toonygrad.dtype import ConstType, ImageDType, PtrDType, dtypes, DType, truncate
-from toonygrad.helpers import ContextVar, prod, getenv, all_same, unwrap
+from toonygrad.helpers import ContextVar, prod, getenv, all_same, unwrap, Context
 if TYPE_CHECKING:
   from toonygrad.shape.symbolic import Variable, sint
   from toonygrad.shape.shapetracker import ShapeTracker
@@ -216,7 +216,9 @@ class UOp(MathTrait):
   def __repr__(self): return pretty_print(self, lambda x: f"{type(self).__name__}({x.op}, {x.dtype}, arg={x.argstr()}, src=(%s))")
   def argstr(self): return f'({", ".join(map(str, self.arg))})' if self.op is UOps.REDUCE_AXIS else self.arg
   # *** uop evaluation ***
-  def simplify(self): return graph_rewrite(self, symbolic)
+  def simplify(self):
+    with Context(TRACK_MATCH_STATS=0):
+      return graph_rewrite(self, symbolic)
   def ssimplify(self) -> Union[UOp, ConstType]: return ret.arg if (ret:=self.simplify()).op is UOps.CONST else ret
   def _eval(self, dtype, expected_type) -> ConstType:
     assert self.dtype in dtype, f"eval with wrong dtype {self}"
@@ -416,7 +418,7 @@ class UOp(MathTrait):
   def buffer(self) -> Buffer:
     from toonygrad.device import Buffer
     if (ret:=buffers.get(self)) is not None: return ret
-    if self.op is UOps.VIEW: return self.src[0].buffer
+    if self.op is UOps.VIEW: return self.src[0].buffer  # this is wrong
     assert self.op == UOps.BUFFER, f"no buffer on {self.op}"
     buffers[self] = ret = Buffer(self.arg[0], self.arg[1], self.dtype)
     return ret
@@ -436,16 +438,16 @@ class UOp(MathTrait):
     raise Exception(f"unhandled MetaOp {op}")
 
   # movement functions
-  def _swizzle(self, method, arg):
+  def _view(self, method, arg):
     from toonygrad.shape.shapetracker import ShapeTracker
     st = ShapeTracker.from_shape(tuple() if self.shape is None else self.shape)
     return UOp(UOps.VIEW, self.dtype, (self,), st.__getattribute__(method)(arg))
-  def reshape(self, shape): return self._swizzle('reshape', shape)
-  def expand(self, shape): return self._swizzle('expand', shape)
-  def permute(self, arg): return self._swizzle('permute', arg)
-  def pad(self, arg): return self._swizzle('pad', arg)
-  def shrink(self, arg): return self._swizzle('shrink', arg)
-  def stride(self, arg): return self._swizzle('stride', arg)
+  def reshape(self, shape): return self._view('reshape', shape)
+  def expand(self, shape): return self._view('expand', shape)
+  def permute(self, arg): return self._view('permute', arg)
+  def pad(self, arg): return self._view('pad', arg)
+  def shrink(self, arg): return self._view('shrink', arg)
+  def stride(self, arg): return self._view('stride', arg)
 
 @dataclass(frozen=True)
 class KernelInfo:
