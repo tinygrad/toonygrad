@@ -6,6 +6,7 @@ from toonygrad.dtype import dtypes
 from toonygrad.helpers import partition
 from toonygrad.engine.schedule import ScheduleItem
 from toonygrad.codegen.linearize import linearize_uop
+from toonygrad.codegen.uopgraph import full_graph_rewrite
 from toonygrad.renderer import Renderer
 
 acc_number = 0
@@ -35,7 +36,7 @@ just_reduce = PatternMatcher([
 def _rewrite_kernel(sink:UOp, opts:Renderer) -> UOp:
   # this is a total nonsense name
   sink = graph_rewrite(sink, pm_lowerer, ctx=get_index(sink, opts))
-  sink = graph_rewrite(sink, symbolic_flat+no_pyint+just_reduce)
+  sink = full_graph_rewrite(sink, opts)
   return sink
 
 def run_schedule(schedule:List[ScheduleItem], var_vals, do_update_stats=False):
