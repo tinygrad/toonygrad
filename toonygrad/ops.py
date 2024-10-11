@@ -381,7 +381,6 @@ class UOp(MathTrait):
   def copy_to_device(self, device): return UOp(UOps.COPY, self.dtype, (self,), device)
   def r(self, op, axis): return UOp(UOps.REDUCE_AXIS, self.dtype, (self,), (REDUCE_ALU[op], axis))
   def contiguous(self): return UOp(UOps.CONTIGUOUS, self.dtype, (self,))
-  def is_realized(self): return self in buffers
 
   @property
   def lbs(self): return [self]
@@ -418,10 +417,13 @@ class UOp(MathTrait):
   def buffer(self) -> Buffer:
     from toonygrad.device import Buffer
     if (ret:=buffers.get(self)) is not None: return ret
-    if self.op is UOps.VIEW: return self.src[0].buffer  # this is wrong
+    if self.op is UOps.VIEW:
+      assert self.st.contiguous == True, "VIEW only works here if it's contiguous"
+      return self.src[0].buffer
     assert self.op == UOps.BUFFER, f"no buffer on {self.op}"
     buffers[self] = ret = Buffer(self.arg[0], self.arg[1], self.dtype)
     return ret
+  def is_realized(self): return self in buffers
 
   buffer_num = -1
   @staticmethod
@@ -431,10 +433,8 @@ class UOp(MathTrait):
 
   @staticmethod
   def metaop(op, shape, dtype, device, arg=None, src=None):
-    if op is MetaOps.CONST:
-      return UOp.const(dtype, arg).copy_to_device(device).reshape(shape)
-    if op is MetaOps.EMPTY:
-      return UOp.new_buffer(dtype, device, prod(shape)).reshape(shape)
+    if op is MetaOps.CONST: return UOp.const(dtype, arg).copy_to_device(device).reshape(shape)
+    if op is MetaOps.EMPTY: return UOp.new_buffer(dtype, device, prod(shape)).reshape(shape)
     raise Exception(f"unhandled MetaOp {op}")
 
   # movement functions
