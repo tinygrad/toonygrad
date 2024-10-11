@@ -52,6 +52,7 @@ enumerate_bufs = PatternMatcher([(UPat(UOps.BUFFER, name="base"), append_buffer)
 
 @track_rewrites
 def _schedule_rewrite(sink:UOp) -> List[ScheduleItem]:
+  sink = graph_rewrite(sink, pm)
   sink = graph_rewrite(sink, create_buffers, {})
   graph_rewrite(sink, break_sched, sched:=[])
   ret = []
@@ -63,7 +64,6 @@ def _schedule_rewrite(sink:UOp) -> List[ScheduleItem]:
 def create_schedule_with_vars(sched:List[UOp]) -> Tuple[List[ScheduleItem], Dict[Variable, int]]:
   # TODO: the input should be a SINK
   sink = UOp.sink(*sched)
-  sink = graph_rewrite(sink, pm)
   sched = _schedule_rewrite(sink)
   print(len(sched))
   return sched, {}
