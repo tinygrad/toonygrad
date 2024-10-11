@@ -5,13 +5,10 @@ from enum import auto, IntEnum, Enum
 from dataclasses import dataclass, field
 from weakref import WeakValueDictionary
 from toonygrad.dtype import ConstType, ImageDType, PtrDType, dtypes, DType, truncate
-from toonygrad.helpers import ContextVar, prod, getenv, all_same, unwrap, Context
+from toonygrad.helpers import ContextVar, prod, getenv, all_same, Context
 if TYPE_CHECKING:
   from toonygrad.shape.symbolic import Variable, sint
   from toonygrad.shape.shapetracker import ShapeTracker
-  from toonygrad.device import Buffer
-
-buffers: Dict[UOp, Buffer] = {}
 
 # wrapper around IntEnum that preserves Enum.__str__ and makes auto() unique across all FastEnum subclasses
 class FastEnum(IntEnum):
@@ -397,7 +394,10 @@ class UOp(MathTrait):
 
   @functools.cached_property
   def shape(self):
-    if self.op is UOps.VIEW: return unwrap(self.st).shape
+    if self.op is UOps.VIEW:
+      st = self.st
+      assert st is not None
+      return st.shape
     if self.op is UOps.BUFFER: return (self.arg[1],)
     if self.op in {UOps.LOAD, UOps.STORE}: return self.src[1].shape
     if self.op is UOps.CONST: return None
@@ -448,6 +448,10 @@ class UOp(MathTrait):
   def pad(self, arg): return self._view('pad', arg)
   def shrink(self, arg): return self._view('shrink', arg)
   def stride(self, arg): return self._view('stride', arg)
+
+if TYPE_CHECKING:
+  from toonygrad.device import Buffer
+buffers: Dict[UOp, Buffer] = {}
 
 @dataclass(frozen=True)
 class KernelInfo:
