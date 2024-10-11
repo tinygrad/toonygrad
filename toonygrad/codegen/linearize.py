@@ -1,9 +1,8 @@
-# TODO: this should be factored like this in tinygrad
-from typing import List, Dict, Set, Tuple, Any, Optional
+from typing import List, Set, Dict, Tuple, Any, Optional
 import functools, heapq
-from toonygrad.helpers import DEBUG
+from toonygrad.ops import type_verify, END_FOR_UOP, UOp, UOps
 from toonygrad.dtype import dtypes, DType
-from toonygrad.ops import UOp, UOps, END_FOR_UOP
+from toonygrad.helpers import DEBUG
 
 def get_children_dfs(u:UOp, children:Dict[UOp, List[UOp]], srcs:Dict[UOp, Dict[UOp, None]], in_degree:Dict[UOp, int]):
   if u in children: return srcs[u]
@@ -16,7 +15,7 @@ def get_children_dfs(u:UOp, children:Dict[UOp, List[UOp]], srcs:Dict[UOp, Dict[U
   in_degree[u] = len(u.src)
   return srcs[u]
 
-def linearize_uop(sink:UOp) -> List[UOp]:
+def linearize_uop(sink:UOp, skip_check:bool=not __debug__) -> List[UOp]:
   assert sink.op is UOps.SINK, f"sink isn't sink, it's {sink.op}"
   # filter nodes that don't link to a sink
   # BFS toposort
@@ -93,6 +92,9 @@ def linearize_uop(sink:UOp) -> List[UOp]:
 
   # end scopes in toposort order
   for u, x in scope_end.items(): _uops.insert(_uops.index(x)+1, UOp(END_FOR_UOP[u.op][1], dtypes.void, (u,)))
+
+  # sanity checks (NOTE: these can cause things to be skipped in BEAM)
+  if not skip_check: type_verify(_uops)
 
   # strip the SINK
   return _uops[:-1]
