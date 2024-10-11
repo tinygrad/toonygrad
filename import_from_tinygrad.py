@@ -4,7 +4,7 @@ import os, pathlib
 FILES = ["tensor.py", "function.py", "helpers.py", "dtype.py", "device.py", "multi.py",
          "nn/__init__.py", "nn/datasets.py", "nn/optim.py", "nn/state.py", "ops.py",
          "shape/symbolic.py", "shape/shapetracker.py", "shape/view.py",
-         "runtime/ops_clang.py", "runtime/ops_python.py",
+         "runtime/ops_clang.py", "runtime/ops_python.py", "runtime/ops_metal.py",
          "renderer/__init__.py", "renderer/cstyle.py",
          "codegen/lowerer.py", "codegen/linearize.py",
          "codegen/uopgraph.py", "codegen/transcendental.py",
