@@ -106,6 +106,7 @@ class UOps(FastEnum):
   EMPTY = auto()
   BUFFER_VIEW = auto()
 
+  INDEX = auto()
   EXPAND = auto()
   CONTRACT = auto()
   VIEW = auto()

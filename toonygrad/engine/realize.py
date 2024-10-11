@@ -8,30 +8,6 @@ from toonygrad.engine.schedule import ScheduleItem
 from toonygrad.codegen.linearize import linearize_uop
 from toonygrad.codegen.uopgraph import full_graph_rewrite
 from toonygrad.renderer import Renderer
-
-acc_number = 0
-def do_reduce(root:UOp):
-  global acc_number
-  reduce_parented, reduce_unparented = partition(root.src[1:], lambda x: x in root.src[0].sparents)
-  ret = root.src[0]
-  if len(reduce_parented):
-    acc = UOp(UOps.DEFINE_ACC, root.dtype,
-              (root.const_like(identity_element(root.arg, root.dtype.scalar())),) + tuple(reduce_parented), (acc_number,))
-    acc_number += 1
-    ret = UOp(UOps.ASSIGN, root.dtype, (acc, acc.alu(root.arg, ret)))
-  # for MAX, we can just ignore the unparented
-  if root.arg is BinaryOps.ADD:
-    for r in reduce_unparented:ret = ret * (r.src[1]-r.src[0]).cast(ret.dtype.scalar()).broadcast(ret.dtype.count)
-  return ret
-
-no_pyint = PatternMatcher([(UPat((UOps.CONST, UOps.VCONST, UOps.ALU, UOps.SPECIAL, UOps.RANGE, UOps.EXPAND, UOps.VECTORIZE, UOps.DEFINE_VAR),
-  name="x"), lambda x: UOp(x.op, dtypes.int32.vec(x.dtype.count), x.src, x.arg) if x.dtype.scalar() == dtypes.pyint else None)])
-
-just_reduce = PatternMatcher([
-  # do reduce
-  (UPat(UOps.REDUCE, name="root"), do_reduce),
-])
-
 from toonygrad.codegen.kernel import Kernel
 
 @track_rewrites
