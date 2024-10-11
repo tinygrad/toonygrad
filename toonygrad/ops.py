@@ -410,7 +410,9 @@ class UOp(MathTrait):
     return tuple(ret)
 
   @property
-  def size(self) -> sint: return prod(self.shape)
+  def size(self) -> sint:
+    assert self.shape is not None, f"no size for {self}"
+    return prod(self.shape)
 
   @property
   def buffer(self) -> Buffer:
