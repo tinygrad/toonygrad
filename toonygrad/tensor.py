@@ -9,9 +9,8 @@ from toonygrad.dtype import DType, DTypeLike, dtypes, ImageDType, ConstType, lea
 from toonygrad.helpers import argfix, make_pair, flatten, prod, all_int, round_up, merge_dicts, argsort, getenv, all_same, fully_flatten, dedup
 from toonygrad.helpers import IMAGE, DEBUG, WINO, _METADATA, Metadata, TRACEMETA, ceildiv
 from toonygrad.multi import MultiLazyBuffer
-from toonygrad.ops import MetaOps, truncate, smax, resolve, UOp, UOps, BinaryOps
+from toonygrad.ops import MetaOps, truncate, smax, resolve, UOp, UOps, BinaryOps, sint, Variable
 from toonygrad.device import Device, Buffer, BufferOptions
-from toonygrad.shape.symbolic import sint, Variable
 from toonygrad.engine.lazy import LazyBuffer
 from toonygrad.engine.realize import run_schedule, memory_planner
 from toonygrad.engine.schedule import ScheduleItem, create_schedule_with_vars
@@ -54,6 +53,7 @@ def _fromnp(x: 'np.ndarray') -> LazyBuffer:  # type: ignore [name-defined] # noq
   ret = LazyBuffer.metaop(MetaOps.EMPTY, x.shape, _from_np_dtype(x.dtype), "NPY")
   # fake realize
   ret.buffer.allocate(x)
+  #del ret.srcs
   return ret
 
 def get_shape(x) -> Tuple[int, ...]:
@@ -73,6 +73,7 @@ def _frompy(x:Union[List, Tuple, bytes], dtype:DType) -> LazyBuffer:
     data = struct.pack(f"@{ret.size}{dtype.fmt}", *[truncate_function(xi) for xi in fully_flatten(x)])
   # fake realize
   ret.buffer.allocate(memoryview(data if Device.DEFAULT != "PYTHON" else bytearray(data)))
+  #del ret.srcs
   return ret
 
 def _get_winograd_matcols(mat, dims:int, shp:Tuple[sint, ...], device:Union[str, Tuple[str, ...]]) -> List[List[Tensor]]:
@@ -1061,6 +1062,9 @@ class Tensor:
       indices_filtered[dim] = ((index, index+1), 1) if index >= 0 else ((size+index, size+index+1), 1)
     for dim in type_dim[slice]:
       if (index := indices_filtered[dim]).step == 0: raise ValueError(f"{index=} on {dim=} cannot have 0 as step")
+      if not all(isinstance(x, (int, type(None))) for x in (index.start, index.stop, index.step)):
+        raise TypeError(f"Unsupported slice for dimension {dim}. Expected slice with integers or None, got slice("
+                        f"{', '.join(type(x).__name__ for x in (index.start, index.stop, index.step))}).")
       s, e, st = index.indices(self.shape[dim])
       indices_filtered[dim] = ((0, 0) if (st * (e - s)) < 0 else (s, e) if st > 0 else (e+1, s+1), st)
     # skip all Tensor dims for basic indexing
@@ -1677,7 +1681,7 @@ class Tensor:
 
   def _softmax(self, axis, dtype:Optional[DTypeLike]=None):
     x = self.cast(dtype) if dtype is not None else self
-    m = x - x.max(axis=axis, keepdim=True)
+    m = x - x.max(axis=axis, keepdim=True).detach()
     e = m.exp()
     return m, e, e.sum(axis=axis, keepdim=True)
 

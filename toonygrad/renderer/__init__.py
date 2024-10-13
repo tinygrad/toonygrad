@@ -2,8 +2,7 @@ from typing import Optional, List, Tuple, Dict, Callable, Any
 import functools
 from dataclasses import dataclass, field
 from toonygrad.helpers import to_function_name, dedup, prod
-from toonygrad.ops import Op, UOps, UOp, flops_mem
-from toonygrad.shape.symbolic import sym_infer, sint, Variable
+from toonygrad.ops import Op, UOps, UOp, flops_mem, sym_infer, sint, Variable
 from toonygrad.dtype import DType
 
 @dataclass(frozen=True)
@@ -43,7 +42,7 @@ class Program:
     if not self._ran_post_init and self.uops is not None:
       # single pass through the uops
       for u in self.uops:
-        if u.op is UOps.DEFINE_VAR: self.vars.append(Variable(u.arg[0], u.arg[1], u.arg[2]))
+        if u.op is UOps.DEFINE_VAR: self.vars.append(u)
         if u.op is UOps.DEFINE_GLOBAL: self.globals.append(u.arg)
         if u.op is UOps.STORE: self.outs.extend([x.arg for x in u.src[0].sparents if x.op is UOps.DEFINE_GLOBAL])
         if u.op is UOps.SPECIAL:
