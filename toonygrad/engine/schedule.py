@@ -32,14 +32,15 @@ def create_buffer(ctx:Dict[UOp, UOp], store_me:UOp, load_me:Optional[UOp]=None):
     stored = ctx[store_me] = UOp.store(buffer, ShapeTracker.from_shape(store_me.shape).to_uop(), store_me)
   else:
     if load_me is None: return None
-  return UOp.load(stored.src[0], load_me.st.to_uop() if load_me is not None else ShapeTracker.from_shape(store_me.shape).to_uop(),
+  return UOp.load(stored.src[0],
+                  load_me.st.to_uop() if load_me is not None and load_me.op is UOps.VIEW else ShapeTracker.from_shape(store_me.shape).to_uop(),
                   stored, dtype=store_me.dtype)
 
 create_buffers = PatternMatcher([
   (UPat(UOps.VIEW, src=(UPat(UOps.BUFFER, name='store_me'),), name="load_me"),
    lambda ctx, store_me, load_me: UOp.load(store_me, load_me.st.to_uop(), dtype=load_me.dtype)),
-  (UPat(UOps.VIEW, src=(UPat.var('store_me'),), name="load_me"), create_buffer),
-  (UPat((UOps.COPY, UOps.CONTIGUOUS), name="store_me"), create_buffer),
+  (UPat((UOps.VIEW, UOps.CONTIGUOUS), src=(UPat.var('store_me'),), name="load_me"), create_buffer),
+  (UPat(UOps.COPY, name="store_me"), create_buffer),
   #(UPat(UOps.SINK, name="sink"),
   # lambda ctx,sink: UOp.sink(*[create_buffer(ctx,x) for x in sink.src]) if all(x.op is not UOps.STORE for x in sink.src) else None),
 ])
