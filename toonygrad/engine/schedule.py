@@ -11,7 +11,7 @@ class ScheduleItem:
   ast: UOp
   bufs: Tuple[Buffer, ...]
 
-pm = symbolic+PatternMatcher([
+pm_merge_views = symbolic+PatternMatcher([
   # merge VIEW
   (UPat(UOps.VIEW, src=(UPat(UOps.VIEW, name="s0"),), name="s1"),
    lambda s0,s1: UOp(UOps.VIEW, s1.dtype, s0.src, s0.arg+s1.arg)),
@@ -52,7 +52,7 @@ enumerate_bufs = PatternMatcher([(UPat(UOps.BUFFER, name="base"), append_buffer)
 
 @track_rewrites
 def _schedule_rewrite(sink:UOp) -> List[ScheduleItem]:
-  sink = graph_rewrite(sink, pm)
+  sink = graph_rewrite(sink, pm_merge_views)
   sink = graph_rewrite(sink, create_buffers, {})
   graph_rewrite(sink, break_sched, sched:=[])
   ret = []
