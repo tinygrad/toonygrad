@@ -15,7 +15,7 @@ class BatchNorm:
   See: `Tensor.batchnorm`
 
   ```python exec="true" session="tensor"
-  from tinygrad import Tensor, dtypes, nn
+  from toonygrad import Tensor, dtypes, nn
   import numpy as np
   np.set_printoptions(precision=4)
   ```
