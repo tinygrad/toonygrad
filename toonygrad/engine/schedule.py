@@ -1,6 +1,6 @@
 from typing import List, Dict, Tuple, Optional
 from dataclasses import dataclass
-from toonygrad.ops import UOp, graph_rewrite, PatternMatcher, UPat, UOps, symbolic, track_rewrites
+from toonygrad.ops import UOp, graph_rewrite, PatternMatcher, UPat, UOps, symbolic, track_rewrites, resolve
 from toonygrad.engine.lazy import LazyBuffer
 from toonygrad.shape.symbolic import Variable
 from toonygrad.shape.shapetracker import ShapeTracker
@@ -51,11 +51,20 @@ break_sched = PatternMatcher([
   (UPat(UOps.LOAD, src=(UPat(), UPat(), UPat()), name="ld"), lambda k,ld: UOp.load(ld.src[0], ld.src[1], dtype=ld.dtype)),
 ])
 
-def append_buffer(b:List[Buffer], base:UOp):
-  if base.buffer not in b: b.append(base.buffer)
+def index_buffer(b:List[Buffer], buf:UOp, view:UOp, store:Optional[UOp]=None) -> UOp:
+  if buf.buffer not in b: b.append(buf.buffer)
   # should this be the ptr, or the buffer?
-  return UOp(UOps.DEFINE_GLOBAL, base.dtype.ptr(), (), b.index(base.buffer))
-enumerate_bufs = PatternMatcher([(UPat(UOps.BUFFER, name="base"), append_buffer)])
+  idx, mask = view.st.to_indexed_uops()
+  ret = UOp(UOps.DEFINE_GLOBAL, buf.dtype.ptr(), (), b.index(buf.buffer))
+  if resolve(mask != True): ret = mask.where(ret, ret.const_like(0))
+  ret = UOp(UOps.INDEX, buf.dtype.ptr(), (ret, idx))
+  return UOp.store(ret, store) if store is not None else UOp.load(ret, dtype=buf.dtype)
+
+enumerate_bufs = PatternMatcher([
+  #(UPat(UOps.BUFFER, name="base"), append_buffer),
+  (UPat(UOps.LOAD, src=(UPat(UOps.BUFFER, name="buf"), UPat(UOps.VIEW, name="view"))), index_buffer),
+  (UPat(UOps.STORE, src=(UPat(UOps.BUFFER, name="buf"), UPat(UOps.VIEW, name="view"), UPat.var("store"))), index_buffer),
+])
 
 @track_rewrites
 def _schedule_rewrite(sink:UOp) -> List[ScheduleItem]:
