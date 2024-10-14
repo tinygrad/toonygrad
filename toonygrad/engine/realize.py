@@ -23,6 +23,7 @@ pm_new_lowerer = PatternMatcher([
 def _rewrite_kernel(k:Kernel, sink:UOp, opts:Renderer) -> UOp:
   #sink = rewrite_shapetracker_with_index(sink, opts)
   sink = graph_rewrite(sink, pm_new_lowerer)
+  # TODO: globally group ranges, replace some with specials, replace some with split ranges. this is "OptOps"
   sink = full_graph_rewrite(sink, opts)
   return sink
 
