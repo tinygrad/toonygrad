@@ -394,6 +394,9 @@ class UOp(MathTrait):
   @property
   def lbs(self): return [self]
 
+  @property
+  def base(self): return self.src[0].base if self.op is UOps.VIEW else self
+
   @functools.cached_property
   def device(self):
     if self.op is UOps.BUFFER: return self.arg[0]
@@ -437,6 +440,8 @@ class UOp(MathTrait):
     assert self.op == UOps.BUFFER, f"no buffer on {self.op}"
     buffers[self] = ret = Buffer(self.arg[0], self.arg[1], self.dtype)
     return ret
+  @property
+  def realized(self): return buffers.get(self)
   def is_realized(self): return self in buffers
 
   buffer_num = -1
@@ -466,9 +471,9 @@ class UOp(MathTrait):
   def shrink(self, arg): return self._view('shrink', arg)
   def stride(self, arg): return self._view('stride', arg)
 
-  # hacks for srcs deleting
   @property
-  def srcs(self): return None
+  def srcs(self): return self.src
+  # hacks for srcs deleting
   @srcs.deleter
   def srcs(self): pass
 

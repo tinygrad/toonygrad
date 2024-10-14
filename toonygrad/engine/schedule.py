@@ -1,4 +1,4 @@
-from typing import List, Dict, Tuple
+from typing import List, Dict, Tuple, Optional
 from dataclasses import dataclass
 from toonygrad.ops import UOp, graph_rewrite, PatternMatcher, UPat, UOps, symbolic, track_rewrites
 from toonygrad.engine.lazy import LazyBuffer
@@ -26,16 +26,19 @@ pm_merge_views = symbolic+PatternMatcher([
     lambda s,c: c if all(x.mask is None for x in s.st.views) else None),
 ])
 
-def create_buffer(ctx:Dict[UOp, UOp], store_me:UOp, load_me:UOp):
+def create_buffer(ctx:Dict[UOp, UOp], store_me:UOp, load_me:Optional[UOp]=None):
   if (stored:=ctx.get(store_me)) is None:
     buffer = UOp.new_buffer(store_me.dtype, store_me.device, store_me.size)
     stored = ctx[store_me] = UOp.store(buffer, ShapeTracker.from_shape(store_me.shape).to_uop(), store_me)
-  return UOp.load(stored.src[0], load_me.st.to_uop(), stored, dtype=load_me.dtype)
+  return UOp.load(stored.src[0], load_me.st.to_uop() if load_me.op is UOps.VIEW else ShapeTracker.from_shape(load_me.shape).to_uop(),
+                  stored, dtype=load_me.dtype) if load_me is not None else stored
 
 create_buffers = PatternMatcher([
   (UPat(UOps.VIEW, src=(UPat(UOps.BUFFER, name='store_me'),), name="load_me"),
    lambda ctx, store_me, load_me: UOp.load(store_me, load_me.st.to_uop(), dtype=load_me.dtype)),
-  (UPat(UOps.VIEW, src=(UPat.var('store_me'),), name="load_me"), create_buffer),
+  (UPat((UOps.VIEW, UOps.CONTIGUOUS), src=(UPat.var('store_me'),), name="load_me"), create_buffer),
+  (UPat(UOps.SINK, name="sink"),
+   lambda ctx,sink: UOp.sink(*[create_buffer(ctx,x) for x in sink.src]) if all(x.op is not UOps.STORE for x in sink.src) else None),
 ])
 
 def append_kernel(k:List[UOp], base:UOp): k.append(base.sink())
