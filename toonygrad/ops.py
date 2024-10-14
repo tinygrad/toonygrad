@@ -5,7 +5,7 @@ from enum import auto, IntEnum, Enum
 from dataclasses import dataclass, field
 from weakref import WeakValueDictionary
 from toonygrad.dtype import ConstType, ImageDType, PtrDType, dtypes, DType, truncate
-from toonygrad.helpers import ContextVar, prod, getenv, all_same, Context, partition, argsort
+from toonygrad.helpers import ContextVar, prod, getenv, all_same, Context
 if TYPE_CHECKING:
   from toonygrad.shape.shapetracker import ShapeTracker
 
@@ -389,13 +389,6 @@ class UOp(MathTrait):
 
   def copy_to_device(self, device): return UOp(UOps.COPY, self.dtype, (self,), device)
   def r(self, op, axis): return UOp(UOps.REDUCE_AXIS, self.dtype, (self,), (REDUCE_ALU[op], axis, tuple(self.shape[x] for x in axis)))
-
-  # always put reduces last (we don't even need an axis arg, just a count)
-  #def r(self, op, axis):
-  #  order = tuple(sum(partition(range(len(self.shape)), lambda x: x not in axis), []))
-  #  new_axis = tuple(range(len(self.shape)-len(axis), len(self.shape)))
-  #  ret = self.permute(order)
-  #  return UOp(UOps.REDUCE_AXIS, self.dtype, (ret,), (REDUCE_ALU[op], new_axis, tuple(ret.shape[x] for x in new_axis))).permute(argsort(order))
   def contiguous(self): return UOp(UOps.CONTIGUOUS, self.dtype, (self,))
 
   @property

@@ -23,9 +23,9 @@ for f in FILES:
     n0,n2 = rd.split(n1)
     rd = n0+insert+n1+n2
   (dest/f).parent.mkdir(parents=True, exist_ok=True)
+  if rd == open(dest/f).read(): continue
   if not (dest/f).exists() or int(os.getenv("FORCE", "0")):
     print("importing", f)
     with open(dest/f, "w") as f: f.write(rd)
   else:
-    cmp = open(dest/f).read()
-    if rd != cmp: print("skipping", f)
+    print("skipping", f)

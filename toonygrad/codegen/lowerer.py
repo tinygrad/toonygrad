@@ -6,7 +6,7 @@ from typing import List, Tuple, cast, Optional
 from toonygrad.shape.shapetracker import ShapeTracker
 from toonygrad.shape.view import variable_to_uop
 from toonygrad.dtype import dtypes
-from toonygrad.ops import KernelInfo, BinaryOps, UOp, UOps, graph_rewrite, PatternMatcher, UPat, resolve, sint
+from toonygrad.ops import KernelInfo, BinaryOps, UOp, UOps, graph_rewrite, PatternMatcher, UPat, sint
 from toonygrad.renderer import Renderer
 from toonygrad.helpers import all_int, prod, partition, flatten
 
@@ -56,7 +56,7 @@ def get_index(ast:UOp, opts:Renderer) -> IndexContext:
   full_shape = ast.full_shape
   first_upcasted = len(full_shape)-ki.upcasted
   first_output_st: ShapeTracker = ast.src[0].st_arg
-  # if there's no reduce, this is first_upcasted
+  # if there's no reduce, this is first_upcasted. assumes reduces are at the end
   first_reduce = min([first_upcasted]+flatten(x.axis_arg for x in ast.sparents if x.op is UOps.REDUCE_AXIS))
   local_loads = [x for x in ast.parents if x.op is UOps.LOAD and x.src[0].op is UOps.DEFINE_LOCAL]
   # NOTE: sum up the reduced axes looking across all local loads, yields the number of grouped reduces
