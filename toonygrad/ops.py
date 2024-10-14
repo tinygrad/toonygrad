@@ -365,9 +365,6 @@ class UOp(MathTrait):
           Lmin, Lmax = (s0.vmin, s0.vmax) if s1.vmin >= 0 else (s0.vmax, s0.vmin)
           Rmin, Rmax = (s1.vmin, s1.vmax) if s0.vmin >= 0 else (s1.vmax, s1.vmin)
           return Lmin*Rmin, Lmax*Rmax
-        # arbitrary
-        products = [s0.vmin * s1.vmin, s0.vmin * s1.vmax, s0.vmax * s1.vmin, s0.vmax * s1.vmax]
-        return min(products), max(products)
       if self.arg is BinaryOps.MOD and s1.vmin > 0: return 0, s1.vmax-1
       if self.arg is BinaryOps.IDIV and s1.op is UOps.CONST:
         if s1.arg > 0: return s0.vmin//s1.arg, s0.vmax//s1.arg
@@ -387,7 +384,8 @@ class UOp(MathTrait):
   def render(self, simplify=True) -> str:
     ret = graph_rewrite(self.simplify() if simplify else self, renderer)
     return ret.arg if ret.op is UOps.NOOP else str(ret)
-    # *** this was LazyBuffer ***
+
+  # *** this was LazyBuffer ***
 
   def copy_to_device(self, device): return UOp(UOps.COPY, self.dtype, (self,), device)
   def r(self, op, axis): return UOp(UOps.REDUCE_AXIS, self.dtype, (self,), (REDUCE_ALU[op], axis))
@@ -465,10 +463,15 @@ class UOp(MathTrait):
   def shrink(self, arg): return self._view('shrink', arg)
   def stride(self, arg): return self._view('stride', arg)
 
+  # hacks for srcs deleting
+  @property
+  def srcs(self): return None
+  @srcs.deleter
+  def srcs(self): pass
+
 if TYPE_CHECKING:
   from toonygrad.device import Buffer
 buffers: Dict[UOp, Buffer] = {}
-
 @dataclass(frozen=True)
 class KernelInfo:
   local_dims: int = 0           # number of local dimensions  (this is remapping RANGE to SPECIAL)
@@ -1060,6 +1063,5 @@ renderer = PatternMatcher([
 sint = Union[int, UOp]
 Variable = UOp
 
-def NumNode(val:int): return UOp.const(dtypes.int, val)
 def sym_infer(uop: Union[UOp, int], var_vals: Dict[UOp, int]) -> int:
   return int(uop.substitute({k:k.const_like(v) for k,v in var_vals.items()})) if isinstance(uop, UOp) else uop

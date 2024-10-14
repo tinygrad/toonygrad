@@ -12,10 +12,16 @@ FILES = ["tensor.py", "function.py", "helpers.py", "dtype.py", "device.py", "mul
 src = pathlib.Path("../tinygrad/tinygrad")
 dest = pathlib.Path("toonygrad")
 
+insert = pathlib.Path("uop_is_lazybuffer.py").read_text()
+
 for f in FILES:
   rd = open(src/f).read()
   rd = rd.replace("from tinygrad.", "from toonygrad.")
   rd = rd.replace("import tinygrad.", "import toonygrad.")
+  if f == "ops.py":
+    n1 = "@dataclass(frozen=True)\nclass KernelInfo:\n"
+    n0,n2 = rd.split(n1)
+    rd = n0+insert+n1+n2
   (dest/f).parent.mkdir(parents=True, exist_ok=True)
   if not (dest/f).exists() or int(os.getenv("FORCE", "0")):
     print("importing", f)
