@@ -3,16 +3,26 @@ from toonygrad.codegen.lowerer import rewrite_shapetracker_with_index
 from toonygrad.ops import track_rewrites, UOp, UOps, BinaryOps, identity_element, PatternMatcher, UPat, graph_rewrite, symbolic_flat
 from toonygrad.device import Device
 from toonygrad.dtype import dtypes
-from toonygrad.helpers import partition, dedup
+from toonygrad.helpers import partition, dedup, flatten
 from toonygrad.engine.schedule import ScheduleItem
 from toonygrad.codegen.linearize import linearize_uop
 from toonygrad.codegen.uopgraph import full_graph_rewrite
 from toonygrad.renderer import Renderer
 from toonygrad.codegen.kernel import Kernel
 
+pm_new_lowerer = PatternMatcher([
+  (UPat(UOps.REDUCE_AXIS, name="x"),
+   lambda x: UOp(UOps.REDUCE, x.dtype, (x.src[0],)+tuple(UOp.range(dtypes.int, 0, sz, ax) for ax,sz in zip(x.arg[1], x.arg[2])), x.arg[0])),
+  (UPat(UOps.VALID, src=(UPat(UOps.VIEW),), name="x"), lambda x: x.st_arg.to_indexed_uops()[1]),
+  # rewrite LOAD/STORE VIEW to LOAD/STORE with indexed
+  (UPat((UOps.LOAD, UOps.STORE), src=(UPat(), UPat(UOps.VIEW)), allow_any_len=True, name="x"),
+   lambda x: UOp(x.op, x.dtype, (x.src[0], x.src[1].st.to_indexed_uops()[0]) + x.src[2:]))
+])
+
 @track_rewrites
 def _rewrite_kernel(k:Kernel, sink:UOp, opts:Renderer) -> UOp:
-  sink = rewrite_shapetracker_with_index(sink, opts)
+  #sink = rewrite_shapetracker_with_index(sink, opts)
+  sink = graph_rewrite(sink, pm_new_lowerer)
   sink = full_graph_rewrite(sink, opts)
   return sink
 

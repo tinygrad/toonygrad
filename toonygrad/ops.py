@@ -392,7 +392,8 @@ class UOp(MathTrait):
     # always put reduces last (we don't even need an axis arg, just a count)
     order = tuple(sum(partition(range(len(self.shape)), lambda x: x not in axis), []))
     new_axis = tuple(range(len(self.shape)-len(axis), len(self.shape)))
-    return UOp(UOps.REDUCE_AXIS, self.dtype, (self.permute(order),), (REDUCE_ALU[op], new_axis)).permute(argsort(order))
+    ret = self.permute(order)
+    return UOp(UOps.REDUCE_AXIS, self.dtype, (ret,), (REDUCE_ALU[op], new_axis, tuple(ret.shape[x] for x in new_axis))).permute(argsort(order))
   def contiguous(self): return UOp(UOps.CONTIGUOUS, self.dtype, (self,))
 
   @property
