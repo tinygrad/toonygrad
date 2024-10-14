@@ -3,7 +3,7 @@ from toonygrad.codegen.lowerer import rewrite_shapetracker_with_index
 from toonygrad.ops import track_rewrites, UOp, UOps, BinaryOps, identity_element, PatternMatcher, UPat, graph_rewrite, symbolic_flat
 from toonygrad.device import Device
 from toonygrad.dtype import dtypes
-from toonygrad.helpers import partition
+from toonygrad.helpers import partition, dedup
 from toonygrad.engine.schedule import ScheduleItem
 from toonygrad.codegen.linearize import linearize_uop
 from toonygrad.codegen.uopgraph import full_graph_rewrite
@@ -20,10 +20,12 @@ def run_schedule(schedule:List[ScheduleItem], var_vals, do_update_stats=False):
   for i,si in enumerate(schedule):
     dev = Device[si.ast.device]
     sink = _rewrite_kernel(Kernel(f"kernel_{i}"), si.ast, dev.renderer)
-    src = dev.renderer.render("kernel", linearize_uop(sink))
+    src = dev.renderer.render("fxn", linearize_uop(sink))
+    shapes = dedup([x.st.shape for x in si.ast.sparents if x.op is UOps.VIEW])
+    print(shapes)
     print(src)
     lib = dev.compiler.compile_cached(src)
-    prg = dev.runtime("kernel", lib)
+    prg = dev.runtime("fxn", lib)
     prg(*[x.ensure_allocated()._buf for x in si.bufs])
 
 def memory_planner(x): return x
