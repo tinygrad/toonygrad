@@ -32,48 +32,31 @@ pm_push_views = symbolic+pm_merge_views_and_consts+PatternMatcher([
   (UPat(UOps.CONTIGUOUS, src=(UPat.var('x'),)), lambda x: x),
 ])
 
-def create_buffer(ctx:Dict[UOp, UOp], store_me:UOp, load_me:Optional[UOp]=None):
-  if (stored:=ctx.get(store_me)) is None:
-    buffer = UOp.new_buffer(store_me.dtype, store_me.device, store_me.size)
-    stored = ctx[store_me] = UOp.store(buffer, ShapeTracker.from_shape(store_me.shape).to_uop(), store_me)
-  else:
-    if load_me is None: return None
-  return UOp.load(stored.src[0],
-                  load_me.st.to_uop() if load_me is not None and load_me.op is UOps.VIEW else ShapeTracker.from_shape(store_me.shape).to_uop(),
-                  stored, dtype=store_me.dtype)
+# *********
 
-create_buffers = PatternMatcher([
-  (UPat(UOps.VIEW, src=(UPat(UOps.BUFFER, name='store_me'),), name="load_me"),
-   lambda ctx, store_me, load_me: UOp.load(store_me, load_me.st.to_uop(), dtype=load_me.dtype)),
-  (UPat((UOps.VIEW, UOps.CONTIGUOUS), src=(UPat.var('store_me'),), name="load_me"), create_buffer),
-  (UPat(UOps.COPY, name="store_me"), create_buffer),
-  (UPat(UOps.SINK, name="sink"),
-   lambda ctx,sink:
-    UOp.sink(*[create_buffer(ctx,x) if x.op not in (UOps.STORE, UOps.LOAD) else (x.src[-1] if x.op is UOps.LOAD else x) for x in sink.src])
-    if all(x.op is not UOps.STORE for x in sink.src) else None),
-])
+def append_buffer(bufs:List[Buffer], buf:UOp, view:Optional[UOp]=None, to_store:Optional[UOp]=None):
+  if buf.buffer not in bufs: bufs.append(buf.buffer)
+  dg = UOp(UOps.DEFINE_GLOBAL, buf.dtype.ptr(), (), bufs.index(buf.buffer))
+  if view is not None: return UOp.load(dg, view.replace(src=()), dtype=buf.dtype)
+  if to_store is not None: return UOp.store(dg, ShapeTracker.from_shape(to_store.shape).to_uop(), to_store)
 
-def append_kernel(k:List[UOp], base:UOp): k.append(base.sink())
-break_sched = PatternMatcher([
-  (UPat(UOps.STORE, name="base"), append_kernel),
-  (UPat(UOps.LOAD, src=(UPat(), UPat(), UPat()), name="ld"), lambda k,ld: UOp.load(ld.src[0], ld.src[1], dtype=ld.dtype)),
-])
-
-def append_buffer(b:List[Buffer], base:UOp):
-  if base.buffer not in b: b.append(base.buffer)
-  # should this be the ptr, or the buffer?
-  return UOp(UOps.DEFINE_GLOBAL, base.dtype.ptr(), (), b.index(base.buffer))
 enumerate_bufs = PatternMatcher([
-  (UPat(UOps.BUFFER, name="base"), append_buffer),
-  # copy is just copy
-  (UPat.sink(UPat.store(UPat(name="dest"), UPat(UOps.VIEW, name="st"),
-                        UPat(UOps.COPY, src=(UPat.load(UPat(name="src"), UPat(UOps.VIEW, name="st")),), name="cpy"))),
-                        lambda _, dest, src, st, cpy: UOp(UOps.COPY, dest.dtype, (dest, src), cpy.arg) if st.st.contiguous else None),
+  (UPat(UOps.VIEW, src=(UPat(UOps.BUFFER, src=(), name="buf"),), name="view"), append_buffer),
+  (UPat(UOps.BUFFER, src=(UPat.var("to_store"),), name="buf"), append_buffer),
 ])
 
-# ****
+# *********
 
-pm_remove_buffer = PatternMatcher([(UPat(UOps.BUFFER, src=(UPat.var('x'),)), lambda x: x), ])
+def append_kernel(k:List[UOp], base:UOp):
+  k.append(base.sink())
+  return base.replace(src=())
+break_sched = PatternMatcher([
+  (UPat(UOps.BUFFER, src=(UPat(),), name="base"), append_kernel),
+])
+
+# *********
+
+pm_remove_buffer = PatternMatcher([(UPat(UOps.VIEW, src=(UPat(UOps.BUFFER, src=(UPat.var('x'),)),)), lambda x: x), ])
 def add_buffer(to_realize:Tuple[Dict[UOp, Optional[UOp]], Dict[UOp, UOp]], x:UOp):
   #print(x.op, x.arg)
   # TODO: ugh, this is the worst way to do this
@@ -81,7 +64,7 @@ def add_buffer(to_realize:Tuple[Dict[UOp, Optional[UOp]], Dict[UOp, UOp]], x:UOp
   if to_realize.get(x_bl, True) is None:
     print(len(to_realize), "HIT", sum((x is not None) for x in to_realize.values()))
     to_realize[x_bl] = ret = UOp.new_buffer(x.dtype, x.device, x.size, (x,))
-    return ret
+    return ret.reshape(x.shape)
   return None
 pm_add_buffer = PatternMatcher([(UPat(tuple(UOps), name="x"), add_buffer), ])
 
@@ -101,21 +84,15 @@ def _schedule_rewrite(sink:UOp) -> List[ScheduleItem]:
       to_realize[p] = None
   sink = graph_rewrite(sink, pm_add_buffer, to_realize)
   sink = graph_rewrite(sink, pm_push_views)
-  graph_rewrite(sink, PatternMatcher([]))
+  graph_rewrite(sink, break_sched, sched:=[])
   ret = []
+  for s in sched:
+    ast = graph_rewrite(s, enumerate_bufs, bufs:=[])
+    ret.append(ScheduleItem(ast, bufs))
   return ret
 
 def create_schedule_with_vars(sched:List[UOp]) -> Tuple[List[ScheduleItem], Dict[Variable, int]]:
   sink = UOp.sink(*[x.base for x in sched])
-  """
-  to_realize: Dict[UOp, None] = {x.base:None for x in sched}
-  for p in UOp.sink(*sched).sparents:
-    if p.op is UOps.COPY:
-      to_realize[p.src[0]] = None
-      to_realize[p] = None
-    if p.op is UOps.CONTIGUOUS:
-      to_realize[p] = None
-  """
   sched = _schedule_rewrite(sink)
   print(len(sched))
   return sched, {}
