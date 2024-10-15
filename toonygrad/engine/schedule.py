@@ -55,7 +55,13 @@ def append_buffer(b:List[Buffer], base:UOp):
   if base.buffer not in b: b.append(base.buffer)
   # should this be the ptr, or the buffer?
   return UOp(UOps.DEFINE_GLOBAL, base.dtype.ptr(), (), b.index(base.buffer))
-enumerate_bufs = PatternMatcher([(UPat(UOps.BUFFER, name="base"), append_buffer)])
+enumerate_bufs = PatternMatcher([
+  (UPat(UOps.BUFFER, name="base"), append_buffer),
+  # copy is just copy
+  (UPat.sink(UPat.store(UPat(name="dest"), UPat(UOps.VIEW, name="st"),
+                        UPat(UOps.COPY, src=(UPat.load(UPat(name="src"), UPat(UOps.VIEW, name="st")),), name="cpy"))),
+                        lambda _, dest, src, st, cpy: UOp(UOps.COPY, dest.dtype, (dest, src), cpy.arg) if st.st.contiguous else None),
+])
 
 @track_rewrites
 def _schedule_rewrite(sink:UOp) -> List[ScheduleItem]:

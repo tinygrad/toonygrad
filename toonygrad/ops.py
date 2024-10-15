@@ -611,6 +611,7 @@ class UPat(MathTrait):
   def load(*src:UPat, dtype:Optional[DType]=None): return UPat(UOps.LOAD, dtype, src)
   @staticmethod
   def store(*src:UPat): return UPat(UOps.STORE, dtypes.void, src)
+  def sink(self, *srcs:UOp): return UPat(UOps.SINK, dtypes.void, (self,)+srcs)
 
   def const_like(self, b:ConstType|Variable|Tuple[ConstType]): return UPat.const(self.dtype, b)
   def alu(self, arg, *src:UPat):
