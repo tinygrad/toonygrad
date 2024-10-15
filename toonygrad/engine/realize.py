@@ -29,6 +29,11 @@ def _rewrite_kernel(k:Kernel, sink:UOp, opts:Renderer) -> UOp:
 
 def run_schedule(schedule:List[ScheduleItem], var_vals, do_update_stats=False):
   for i,si in enumerate(schedule):
+    if si.ast.op is UOps.COPY:
+      # TODO: actually do COPY
+      print(si.bufs)
+      #bufs = [x.ensure_allocated()._buf for x in si.bufs]
+      continue
     dev = Device[si.ast.device]
     sink = _rewrite_kernel(Kernel(f"kernel_{i}"), si.ast, dev.renderer)
     src = dev.renderer.render("fxn", linearize_uop(sink))

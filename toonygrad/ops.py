@@ -389,7 +389,9 @@ class UOp(MathTrait):
 
   def copy_to_device(self, device): return UOp(UOps.COPY, self.dtype, (self,), device)
   def r(self, op, axis): return UOp(UOps.REDUCE_AXIS, self.dtype, (self,), (REDUCE_ALU[op], axis, tuple(self.shape[x] for x in axis)))
-  def contiguous(self): return UOp(UOps.CONTIGUOUS, self.dtype, (self,))
+  def contiguous(self):
+    if self.op is UOps.CONTIGUOUS: return self  # should be an instant rule
+    return UOp(UOps.CONTIGUOUS, self.dtype, (self,))
 
   @property
   def lbs(self): return [self]
@@ -446,9 +448,9 @@ class UOp(MathTrait):
 
   buffer_num = -1
   @staticmethod
-  def new_buffer(dtype, device, size):
+  def new_buffer(dtype, device, size, src=tuple()):
     UOp.buffer_num += 1
-    return UOp(UOps.BUFFER, dtype, arg=(device, size, UOp.buffer_num))
+    return UOp(UOps.BUFFER, dtype, src, arg=(device, size, UOp.buffer_num))
 
   @staticmethod
   def metaop(op, shape, dtype, device, arg=None, src=None):
