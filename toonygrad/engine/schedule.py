@@ -12,7 +12,7 @@ class ScheduleItem:
   ast: UOp
   bufs: Tuple[Buffer, ...]
 
-pm_merge_views = PatternMatcher([
+pm_merge_views_and_consts = PatternMatcher([
   # merge VIEW
   (UPat(UOps.VIEW, src=(UPat(UOps.VIEW, name="s0"),), name="s1"),
    lambda s0,s1: UOp(UOps.VIEW, s1.dtype, s0.src, s0.arg+s1.arg)),
@@ -23,11 +23,13 @@ pm_merge_views = PatternMatcher([
     lambda s,c: c if all(x.mask is None for x in s.st.views) else None),
 ])
 
-pm_all = symbolic+pm_merge_views+PatternMatcher([
+pm_push_views = symbolic+pm_merge_views_and_consts+PatternMatcher([
   # VIEW before ALU
   (UPat(UOps.VIEW, src=(UPat(UOps.ALU, name="alu"),), name="s"),
     lambda alu,s: UOp(UOps.ALU, alu.dtype,
                       tuple(UOp(UOps.VIEW, x.dtype, (x,), s.arg) for x in alu.src), alu.arg)),
+  # don't need CONTIGUOUS any more
+  (UPat(UOps.CONTIGUOUS, src=(UPat.var('x'),)), lambda x: x),
 ])
 
 def create_buffer(ctx:Dict[UOp, UOp], store_me:UOp, load_me:Optional[UOp]=None):
@@ -72,44 +74,33 @@ enumerate_bufs = PatternMatcher([
 # ****
 
 pm_remove_buffer = PatternMatcher([(UPat(UOps.BUFFER, src=(UPat.var('x'),)), lambda x: x), ])
-def add_buffer(to_realize:Tuple[Dict[UOp, bool], Dict[UOp, UOp]], x:UOp):
+def add_buffer(to_realize:Tuple[Dict[UOp, Optional[UOp]], Dict[UOp, UOp]], x:UOp):
   #print(x.op, x.arg)
   # TODO: ugh, this is the worst way to do this
   with Context(TRACK_MATCH_STATS=0): x_bl = graph_rewrite(x, pm_remove_buffer)
-  if to_realize.get(x_bl) is False:
-    #print(len(to_realize), "HIT", sum(to_realize.values()))
-    to_realize[x_bl] = True
-    return UOp.new_buffer(x.dtype, x.device, x.size, (x,))
+  if to_realize.get(x_bl, True) is None:
+    print(len(to_realize), "HIT", sum((x is not None) for x in to_realize.values()))
+    to_realize[x_bl] = ret = UOp.new_buffer(x.dtype, x.device, x.size, (x,))
+    return ret
   return None
 pm_add_buffer = PatternMatcher([(UPat(tuple(UOps), name="x"), add_buffer), ])
 
 @track_rewrites
 def _schedule_rewrite(sink:UOp) -> List[ScheduleItem]:
-  sink = graph_rewrite(sink, pm_merge_views)
-  """
-  sink = graph_rewrite(sink, create_buffers, {})
-  graph_rewrite(sink, break_sched, sched:=[])
-  ret = []
-  for s in sched:
-    ast = graph_rewrite(s, enumerate_bufs, bufs:=[])
-    ret.append(ScheduleItem(ast, bufs))
-  """
-  to_realize: Dict[UOp, bool] = {x.base:False for x in sink.src}
-  sink = graph_rewrite(sink, pm_merge_views)
-  # mark
+  sink = graph_rewrite(sink, pm_merge_views_and_consts)
+  to_realize: Dict[UOp, UOp] = {x.base:None for x in sink.src}
+  # mark buffers to be realized
   for p in sink.sparents:
     if p.op is UOps.COPY:
-      to_realize[p.src[0]] = False
-      to_realize[p] = False
+      to_realize[p.src[0]] = None
+      to_realize[p] = None
     if p.op is UOps.CONTIGUOUS:
-      to_realize[p] = False
+      to_realize[p] = None
+    # very simple rule
+    if p.op is UOps.REDUCE_AXIS:
+      to_realize[p] = None
   sink = graph_rewrite(sink, pm_add_buffer, to_realize)
-  #replace = {}
-  #sink = graph_rewrite(sink, pm_add_buffer, (to_realize, replace), replace)
-  #for k in to_realize:
-  #  if k in replace:
-  #    to_realize[replace[k]] = False
-  #sink = graph_rewrite(sink, pm_add_buffer, (to_realize, replace), replace)
+  sink = graph_rewrite(sink, pm_push_views)
   graph_rewrite(sink, PatternMatcher([]))
   ret = []
   return ret
