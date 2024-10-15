@@ -1,6 +1,7 @@
 from typing import List, Dict, Tuple, Optional
 from dataclasses import dataclass
 from toonygrad.helpers import Context
+from toonygrad.dtype import dtypes
 from toonygrad.ops import UOp, graph_rewrite, PatternMatcher, UPat, UOps, symbolic, track_rewrites, buffers
 from toonygrad.engine.lazy import LazyBuffer
 from toonygrad.shape.symbolic import Variable
@@ -37,12 +38,17 @@ pm_push_views = symbolic+pm_merge_views_and_consts+PatternMatcher([
 def append_buffer(bufs:List[Buffer], buf:UOp, view:Optional[UOp]=None, to_store:Optional[UOp]=None):
   if buf.buffer not in bufs: bufs.append(buf.buffer)
   dg = UOp(UOps.DEFINE_GLOBAL, buf.dtype.ptr(), (), bufs.index(buf.buffer))
-  if view is not None: return UOp.load(dg, view.replace(src=()), dtype=buf.dtype)
+  if view is not None: return UOp.load(dg, view.replace(dtype=dtypes.void, src=()), dtype=buf.dtype)
   if to_store is not None: return UOp.store(dg, ShapeTracker.from_shape(to_store.shape).to_uop(), to_store)
 
 enumerate_bufs = PatternMatcher([
+  # load and store
   (UPat(UOps.VIEW, src=(UPat(UOps.BUFFER, src=(), name="buf"),), name="view"), append_buffer),
   (UPat(UOps.BUFFER, src=(UPat.var("to_store"),), name="buf"), append_buffer),
+  # copy is just copy
+  (UPat.sink(UPat.store(UPat(name="dest"), UPat(UOps.VIEW, name="st"),
+                        UPat(UOps.COPY, src=(UPat.load(UPat(name="src"), UPat(UOps.VIEW, name="st")),), name="cpy"))),
+                        lambda _, dest, src, st, cpy: UOp(UOps.COPY, dest.dtype, (dest, src), cpy.arg) if st.st.contiguous else None),
 ])
 
 # *********
